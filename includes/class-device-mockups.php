@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Enhanced Device Mockup Handler with Mediamodifier API Integration
+ * Enhanced Device Mockup Handler with PNG Frame Assets
  * Replace your existing class-device-mockups.php with this enhanced version
  */
 
@@ -11,409 +11,304 @@ if (!defined('ABSPATH')) {
 
 class SRP_Device_Mockups
 {
-  private static $mediamodifier_api_key = null;
-  private static $cache_duration = 3600; // 1 hour cache
+  private static $frames_dir = '';
+  private static $frames_url = '';
 
   public static function init()
   {
-    // Get API key from secure config
-    self::$mediamodifier_api_key = srp_get_mediamodifier_api_key();
+    // Set up frame assets directory
+    self::$frames_dir = SRP_PLUGIN_DIR . 'assets/frames/';
+    self::$frames_url = SRP_PLUGIN_URL . 'assets/frames/';
+
+    // Create frames directory if it doesn't exist
+    if (!file_exists(self::$frames_dir)) {
+      wp_mkdir_p(self::$frames_dir);
+    }
   }
 
-  public static function get_device_options()
+  /**
+   * Get available device frame configurations
+   */
+  public static function get_device_frames()
   {
     return [
-      'none' => [
-        'name' => __('No Device Frame', 'screen-recorder-pro'),
-        'type' => 'none'
-      ],
-      // High-quality device options with Mediamodifier mockup IDs
-      'iphone' => [
-        'name' => __('iPhone - Premium', 'screen-recorder-pro'),
+      // Mobile Device
+      'mobile_iphone_xr' => [
+        'name' => __('Mobile (iPhone XR)', 'screen-recorder-pro'),
         'type' => 'mobile',
-        'viewport' => '393x852',
-        'mediamodifier_id' => '964', // Using working mockup ID from your example
-        'fallback_css' => true
+        'frame_file' => 'mobile-iphone-xr.png',  // Rename your current file to this
+        'screen_area' => [
+          'x' => 75,
+          'y' => 71,
+          'width' => 828,
+          'height' => 1792
+        ],
+        'total_size' => [
+          'width' => 979,
+          'height' => 1934
+        ],
+        'scale_factor' => 0.25  // Smaller scale for better display
       ],
-      'iphone_15_pro' => [
-        'name' => __('iPhone 15 Pro - Premium', 'screen-recorder-pro'),
-        'type' => 'mobile',
-        'viewport' => '393x852',
-        'mediamodifier_id' => '964', // Using working mockup ID
-        'fallback_css' => true
-      ],
-      'iphone_15_pro_max' => [
-        'name' => __('iPhone 15 Pro Max - Premium', 'screen-recorder-pro'),
-        'type' => 'mobile',
-        'viewport' => '430x932',
-        'mediamodifier_id' => '964', // Using working mockup ID
-        'fallback_css' => true
-      ],
-      'samsung_s24' => [
-        'name' => __('Samsung Galaxy S24 - Premium', 'screen-recorder-pro'),
-        'type' => 'mobile',
-        'viewport' => '384x854',
-        'mediamodifier_id' => '964', // Using working mockup ID for now
-        'fallback_css' => true
-      ],
-      'ipad_pro_11' => [
-        'name' => __('iPad Pro 11" - Premium', 'screen-recorder-pro'),
+
+      // Tablet Portrait
+      'tablet_ipad_air_portrait' => [
+        'name' => __('Tablet (iPad Air 2020) Portrait', 'screen-recorder-pro'),
         'type' => 'tablet',
-        'viewport' => '834x1194',
-        'mediamodifier_id' => '964', // You'll need to find iPad mockup ID
-        'fallback_css' => true
+        'frame_file' => 'tablet-ipad-air-portrait.png',
+        'screen_area' => [
+          'x' => 110,
+          'y' => 114,
+          'width' => 1640,
+          'height' => 2360
+        ],
+        'total_size' => [
+          'width' => 1864,
+          'height' => 2584
+        ],
+        'scale_factor' => 0.25
       ],
-      'macbook_pro' => [
-        'name' => __('MacBook Pro - Premium', 'screen-recorder-pro'),
+
+      // Tablet Landscape
+      'tablet_ipad_air_landscape' => [
+        'name' => __('Tablet (iPad Air 2020) Landscape', 'screen-recorder-pro'),
+        'type' => 'tablet',
+        'frame_file' => 'tablet-ipad-air-landscape.png',
+        'screen_area' => [
+          'x' => 158,
+          'y' => 120,
+          'width' => 1440,
+          'height' => 900
+        ],
+        'total_size' => [
+          'width' => 2584,
+          'height' => 1864
+        ],
+        'scale_factor' => 0.35
+      ],
+
+      // Laptop
+      'laptop_macbook_pro' => [
+        'name' => __('Laptop (MacBook Pro)', 'screen-recorder-pro'),
         'type' => 'laptop',
-        'viewport' => '1440x900',
-        'mediamodifier_id' => '964', // You'll need to find MacBook mockup ID
-        'fallback_css' => true
+        'frame_file' => 'laptop-macbook-pro.png',
+        'screen_area' => [
+          'x' => 396,
+          'y' => 143,
+          'width' => 2560,
+          'height' => 1600
+        ],
+        'total_size' => [
+          'width' => 3352,
+          'height' => 1974
+        ],
+        'scale_factor' => 0.25
+      ],
+
+      // Desktop
+      'desktop_imac_pro' => [
+        'name' => __('Desktop (iMac Pro)', 'screen-recorder-pro'),
+        'type' => 'desktop',
+        'frame_file' => 'desktop-imac-pro.png',
+        'screen_area' => [
+          'x' => 228,
+          'y' => 241,
+          'width' => 5120,
+          'height' => 2880
+        ],
+        'total_size' => [
+          'width' => 5576,
+          'height' => 4610
+        ],
+        'scale_factor' => 0.15  // Very small scale due to huge size
       ]
     ];
   }
 
+  /**
+   * Render device frame with PNG overlay
+   */
   public static function render_device_frame($video_url, $device_type = 'none', $options = [])
   {
     if ($device_type === 'none') {
       return self::render_plain_video($video_url, $options);
     }
 
-    $devices = self::get_device_options();
-    if (!isset($devices[$device_type])) {
+    $frames = self::get_device_frames();
+    if (!isset($frames[$device_type])) {
       return self::render_plain_video($video_url, $options);
     }
 
-    $device = $devices[$device_type];
+    $frame_config = $frames[$device_type];
+    $frame_path = self::$frames_dir . $frame_config['frame_file'];
+    $frame_url = self::$frames_url . $frame_config['frame_file'];
 
-    // Try premium API first, fallback to CSS if not available
-    if (!empty(self::$mediamodifier_api_key) && !empty($device['mediamodifier_id'])) {
-      $premium_result = self::render_premium_mockup($video_url, $device, $options);
-      if ($premium_result !== false) {
-        return $premium_result;
-      }
+    // Check if frame file exists
+    if (!file_exists($frame_path)) {
+      error_log('SRP: Frame file not found: ' . $frame_path);
+      return self::render_css_fallback($video_url, $device_type, $options);
     }
 
-    // Fallback to CSS-based mockup
-    if (!empty($device['fallback_css'])) {
-      return self::render_css_mockup($video_url, $device_type, $options);
-    }
-
-    return self::render_plain_video($video_url, $options);
+    return self::render_png_frame($video_url, $frame_config, $frame_url, $options);
   }
 
   /**
-   * Render premium mockup using Mediamodifier API
+   * Render video with PNG frame overlay
    */
-  private static function render_premium_mockup($video_url, $device, $options)
+  private static function render_png_frame($video_url, $frame_config, $frame_url, $options)
   {
-    if (empty(self::$mediamodifier_api_key)) {
-      return false;
-    }
+    $container_id = 'srp-frame-' . uniqid();
+    $scale = $frame_config['scale_factor'];
 
-    // Check if we can make API calls (within limits)
-    if (!srp_can_use_mediamodifier()) {
-      error_log('SRP: Mediamodifier API limit reached for this month');
-      return false;
-    }
-
-    // Check cache first
-    $cache_key = 'srp_mockup_' . md5($video_url . $device['mediamodifier_id']);
-    $cached_result = get_transient($cache_key);
-
-    if ($cached_result !== false) {
-      return self::render_mockup_result($cached_result, $options);
-    }
-
-    try {
-      // Step 1: Get mockup details
-      $mockup_details = self::get_mediamodifier_mockup_details($device['mediamodifier_id']);
-      if (!$mockup_details) {
-        return false;
-      }
-
-      // Step 2: Generate the mockup
-      $mockup_result = self::generate_mediamodifier_mockup($device['mediamodifier_id'], $video_url, $mockup_details);
-      if (!$mockup_result) {
-        return false;
-      }
-
-      // Increment usage counter
-      srp_increment_mediamodifier_usage();
-
-      // Cache the result
-      set_transient($cache_key, $mockup_result, self::$cache_duration);
-
-      return self::render_mockup_result($mockup_result, $options);
-    } catch (Exception $e) {
-      error_log('SRP Mockup API Error: ' . $e->getMessage());
-      return false;
-    }
-  }
-
-  /**
-   * Get mockup details from Mediamodifier API
-   */
-  private static function get_mediamodifier_mockup_details($mockup_id)
-  {
-    $api_url = 'https://api.mediamodifier.com/mockup/nr/' . $mockup_id;
-
-    $response = wp_remote_get($api_url, [
-      'headers' => [
-        'Accept' => 'application/json',
-        'api_key' => self::$mediamodifier_api_key,
-      ],
-      'timeout' => 30
-    ]);
-
-    if (is_wp_error($response)) {
-      error_log('SRP Mockup API Error: ' . $response->get_error_message());
-      return false;
-    }
-
-    $response_code = wp_remote_retrieve_response_code($response);
-    if ($response_code !== 200) {
-      error_log('SRP Mockup API Error: HTTP ' . $response_code);
-      $body = wp_remote_retrieve_body($response);
-      error_log('Response: ' . $body);
-      return false;
-    }
-
-    $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body, true);
-
-    // Handle the correct response format: data.mockup.layers
-    if (!$data || !isset($data['success']) || !$data['success']) {
-      error_log('SRP Mockup API Error: API returned success=false');
-      return false;
-    }
-
-    if (!isset($data['mockup']['layers'])) {
-      error_log('SRP Mockup API Error: No layers found in mockup data');
-      return false;
-    }
-
-    // Return the mockup data including layers
-    return $data['mockup'];
-  }
-
-  /**
-   * Generate mockup using Mediamodifier API v2
-   */
-  private static function generate_mediamodifier_mockup($mockup_id, $video_url, $mockup_details)
-  {
-    $api_url = 'https://api.mediamodifier.com/v2/mockup/render';
-
-    // Find the image layer (screen content)
-    $screen_layer_id = null;
-    if (isset($mockup_details['layers']) && !empty($mockup_details['layers'])) {
-      foreach ($mockup_details['layers'] as $layer) {
-        if (isset($layer['id']) && isset($layer['type']) && $layer['type'] === 'image') {
-          $screen_layer_id = $layer['id'];
-          break;
-        }
-      }
-
-      // If no image layer found, try looking for layers with 'image' in the label
-      if (!$screen_layer_id) {
-        foreach ($mockup_details['layers'] as $layer) {
-          if (isset($layer['id']) && (
-            stripos($layer['label'] ?? '', 'image') !== false ||
-            stripos($layer['label'] ?? '', 'your') !== false ||
-            stripos($layer['layer'] ?? '', 'img') !== false
-          )) {
-            $screen_layer_id = $layer['id'];
-            break;
-          }
-        }
-      }
-    }
-
-    if (!$screen_layer_id) {
-      error_log('SRP Mockup API Error: No suitable image layer found for screen content');
-      error_log('Available layers: ' . print_r($mockup_details['layers'], true));
-      return false;
-    }
-
-    // Get placeholder dimensions for proper cropping
-    $placeholder_width = 1280; // Default width
-    $placeholder_height = 720; // Default height
-
-    // Try to get actual placeholder dimensions from the layer
-    foreach ($mockup_details['layers'] as $layer) {
-      if ($layer['id'] === $screen_layer_id && isset($layer['placeholder'])) {
-        $placeholder_width = $layer['placeholder']['width'] ?? $placeholder_width;
-        $placeholder_height = $layer['placeholder']['height'] ?? $placeholder_height;
-        break;
-      }
-    }
-
-    // Prepare the render request according to Mediamodifier's v2 format
-    $render_data = [
-      'nr' => intval($mockup_id),
-      'layer_inputs' => [
-        [
-          'id' => $screen_layer_id,
-          'data' => $video_url,
-          'crop' => [
-            'x' => 0,
-            'y' => 0,
-            'width' => $placeholder_width,
-            'height' => $placeholder_height
-          ],
-          'checked' => null
-        ]
-      ]
-    ];
-
-    $response = wp_remote_post($api_url, [
-      'headers' => [
-        'Accept' => 'application/json',
-        'Content-Type' => 'application/json',
-        'api_key' => self::$mediamodifier_api_key,
-      ],
-      'body' => json_encode($render_data),
-      'timeout' => 60
-    ]);
-
-    if (is_wp_error($response)) {
-      error_log('SRP Mockup Render Error: ' . $response->get_error_message());
-      return false;
-    }
-
-    $response_code = wp_remote_retrieve_response_code($response);
-    if ($response_code !== 200) {
-      error_log('SRP Mockup Render Error: HTTP ' . $response_code);
-      $body = wp_remote_retrieve_body($response);
-      error_log('Response body: ' . $body);
-      return false;
-    }
-
-    $body = wp_remote_retrieve_body($response);
-    $data = json_decode($body, true);
-
-    if (!$data || !isset($data['url'])) {
-      error_log('SRP Mockup Render Error: Invalid response format');
-      error_log('Response: ' . $body);
-      return false;
-    }
-
-    return $data;
-  }
-
-  /**
-   * Render the final mockup result
-   */
-  private static function render_mockup_result($mockup_result, $options)
-  {
-    $classes = ['srp-premium-mockup'];
+    $classes = ['srp-png-device-frame', 'srp-device-' . str_replace('_', '-', array_search($frame_config, self::get_device_frames()))];
     if (!empty($options['class'])) {
       $classes[] = $options['class'];
     }
 
-    $style = '';
-    if (!empty($options['style'])) {
-      $style = $options['style'];
-    }
+    $video_attrs = self::get_video_attributes($options);
 
     ob_start();
 ?>
-    <div class="<?php echo esc_attr(implode(' ', $classes)); ?>" style="<?php echo esc_attr($style); ?>">
-      <img src="<?php echo esc_url($mockup_result['url']); ?>"
-        alt="<?php _e('Device mockup', 'screen-recorder-pro'); ?>"
-        class="srp-mockup-image"
-        loading="lazy" />
+    <div id="<?php echo esc_attr($container_id); ?>" class="<?php echo esc_attr(implode(' ', $classes)); ?>"
+      style="<?php echo esc_attr($options['style'] ?? ''); ?>">
 
-      <!-- Overlay video for interaction if needed -->
-      <?php if (!empty($options['interactive']) && $options['interactive'] === 'true'): ?>
-        <div class="srp-interactive-overlay" onclick="this.style.display='none'">
-          <video controls autoplay muted>
-            <source src="<?php echo esc_url($mockup_result['video_url'] ?? ''); ?>" type="video/mp4">
-          </video>
-        </div>
-      <?php endif; ?>
+      <!-- Container for positioning -->
+      <div class="srp-frame-container"
+        style="width: <?php echo $frame_config['total_size']['width'] * $scale; ?>px;
+                  height: <?php echo $frame_config['total_size']['height'] * $scale; ?>px;
+                  position: relative;
+                  margin: 20px auto;">
+
+        <!-- Video element positioned behind frame -->
+        <video class="srp-frame-video"
+          style="position: absolute;
+                      left: <?php echo $frame_config['screen_area']['x'] * $scale; ?>px;
+                      top: <?php echo $frame_config['screen_area']['y'] * $scale; ?>px;
+                      width: calc(<?php echo $frame_config['screen_area']['width'] * $scale; ?>px + 1px);
+                      height: calc(<?php echo $frame_config['screen_area']['height'] * $scale; ?>px + 1px);
+                      object-fit: cover;
+                      border-radius: <?php echo self::get_screen_border_radius($frame_config['type']); ?>;"
+          <?php echo implode(' ', $video_attrs); ?>>
+          <source src="<?php echo esc_url($video_url); ?>" type="video/mp4">
+          <p><?php _e('Your browser does not support the video tag.', 'screen-recorder-pro'); ?></p>
+        </video>
+
+        <!-- PNG frame overlay -->
+        <img src="<?php echo esc_url($frame_url); ?>"
+          alt="<?php echo esc_attr($frame_config['name']); ?> frame"
+          class="srp-device-frame-overlay"
+          style="position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    pointer-events: none;
+                    z-index: 10;"
+          loading="lazy">
+      </div>
     </div>
 
-    <style>
-      .srp-premium-mockup {
-        display: inline-block;
-        position: relative;
-        max-width: 100%;
-        margin: 20px auto;
-      }
+    <?php self::render_png_frame_styles(); ?>
 
-      .srp-mockup-image {
-        max-width: 100%;
-        height: auto;
-        display: block;
-      }
+    <script>
+      jQuery(document).ready(function($) {
+        // Add hover effects for desktop frames
+        $('#<?php echo esc_js($container_id); ?>').hover(
+          function() {
+            $(this).find('.srp-frame-container').css({
+              'transform': 'perspective(1000px) rotateY(-2deg) rotateX(1deg)',
+              'transition': 'transform 0.3s ease'
+            });
+          },
+          function() {
+            $(this).find('.srp-frame-container').css({
+              'transform': 'none'
+            });
+          }
+        );
 
-      .srp-interactive-overlay {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.8);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-      }
-
-      .srp-interactive-overlay video {
-        max-width: 80%;
-        max-height: 80%;
-      }
-
-      @media (max-width: 768px) {
-        .srp-premium-mockup {
-          transform: scale(0.9);
+        // Lazy load video for better performance
+        var video = $('#<?php echo esc_js($container_id); ?> video')[0];
+        if (video && 'IntersectionObserver' in window) {
+          var observer = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+              if (entry.isIntersecting) {
+                video.load();
+                observer.unobserve(video);
+              }
+            });
+          });
+          observer.observe(video);
         }
-      }
-    </style>
+      });
+    </script>
+
   <?php
     return ob_get_clean();
   }
 
   /**
-   * Fallback CSS-based mockup (your existing implementation)
+   * Get screen border radius based on device type
    */
-  private static function render_css_mockup($video_url, $device_type, $options)
+  private static function get_screen_border_radius($device_type)
   {
-    // Use your existing CSS-based implementation as fallback
-    $classes = [
-      'srp-device-mockup',
-      'srp-device-' . str_replace('_', '-', $device_type),
-      'srp-css-fallback'
-    ];
+    switch ($device_type) {
+      case 'mobile':
+        return '15px';
+      case 'tablet':
+        return '8px';
+      case 'laptop':
+      case 'desktop':
+        return '4px';
+      default:
+        return '0px';
+    }
+  }
 
+  /**
+   * Get video attributes array
+   */
+  private static function get_video_attributes($options)
+  {
+    $attrs = [];
+
+    if (($options['controls'] ?? 'false') === 'true') {
+      $attrs[] = 'controls';
+    }
+    if (($options['autoplay'] ?? 'true') === 'true') {
+      $attrs[] = 'autoplay';
+    }
+    if (($options['loop'] ?? 'true') === 'true') {
+      $attrs[] = 'loop';
+    }
+    if (($options['muted'] ?? 'true') === 'true') {
+      $attrs[] = 'muted';
+    }
+
+    $attrs[] = 'playsinline';
+    $attrs[] = 'preload="metadata"';
+
+    return $attrs;
+  }
+
+  /**
+   * CSS fallback for missing PNG files
+   */
+  private static function render_css_fallback($video_url, $device_type, $options)
+  {
+    // Use simplified CSS frame as fallback
+    $classes = ['srp-css-fallback-frame', 'srp-device-' . str_replace('_', '-', $device_type)];
     if (!empty($options['class'])) {
       $classes[] = $options['class'];
     }
 
-    $style = '';
-    if (!empty($options['style'])) {
-      $style = $options['style'];
-    }
-
-    $video_attrs = [
-      'controls' => $options['controls'] ?? 'true',
-      'autoplay' => $options['autoplay'] ?? 'false',
-      'loop' => $options['loop'] ?? 'false',
-      'muted' => $options['muted'] ?? 'false'
-    ];
+    $video_attrs = self::get_video_attributes($options);
 
     ob_start();
   ?>
-    <div class="<?php echo esc_attr(implode(' ', $classes)); ?>" style="<?php echo esc_attr($style); ?>">
-      <div class="srp-device-frame">
-        <div class="srp-device-screen">
-          <video class="srp-device-video"
-            <?php if ($video_attrs['controls'] === 'true'): ?>controls<?php endif; ?>
-            <?php if ($video_attrs['autoplay'] === 'true'): ?>autoplay muted<?php endif; ?>
-            <?php if ($video_attrs['loop'] === 'true'): ?>loop<?php endif; ?>
-            <?php if ($video_attrs['muted'] === 'true'): ?>muted<?php endif; ?>>
+    <div class="<?php echo esc_attr(implode(' ', $classes)); ?>" style="<?php echo esc_attr($options['style'] ?? ''); ?>">
+      <div class="srp-css-device-frame">
+        <div class="srp-css-device-screen">
+          <video class="srp-css-device-video" <?php echo implode(' ', $video_attrs); ?>>
             <source src="<?php echo esc_url($video_url); ?>" type="video/mp4">
             <p><?php _e('Your browser does not support the video tag.', 'screen-recorder-pro'); ?></p>
           </video>
@@ -421,14 +316,14 @@ class SRP_Device_Mockups
       </div>
     </div>
 
-    <?php self::render_enhanced_device_styles($device_type); ?>
+    <?php self::render_css_fallback_styles($device_type); ?>
 
   <?php
     return ob_get_clean();
   }
 
   /**
-   * Plain video without device frame
+   * Plain video without frame
    */
   private static function render_plain_video($video_url, $options)
   {
@@ -437,31 +332,20 @@ class SRP_Device_Mockups
       $classes[] = $options['class'];
     }
 
-    $style = '';
-    if (!empty($options['style'])) {
-      $style = $options['style'];
-    }
+    $style = $options['style'] ?? '';
     if (!empty($options['width']) && $options['width'] !== 'auto') {
-      $style .= 'width: ' . $options['width'] . ';';
+      $style .= 'max-width: ' . $options['width'] . ';';
     }
     if (!empty($options['height']) && $options['height'] !== 'auto') {
       $style .= 'height: ' . $options['height'] . ';';
     }
 
-    $video_attrs = [
-      'controls' => $options['controls'] ?? 'true',
-      'autoplay' => $options['autoplay'] ?? 'false',
-      'loop' => $options['loop'] ?? 'false',
-      'muted' => $options['muted'] ?? 'false'
-    ];
+    $video_attrs = self::get_video_attributes($options);
 
     ob_start();
   ?>
     <video class="<?php echo esc_attr(implode(' ', $classes)); ?>" style="<?php echo esc_attr($style); ?>"
-      <?php if ($video_attrs['controls'] === 'true'): ?>controls<?php endif; ?>
-      <?php if ($video_attrs['autoplay'] === 'true'): ?>autoplay muted<?php endif; ?>
-      <?php if ($video_attrs['loop'] === 'true'): ?>loop<?php endif; ?>
-      <?php if ($video_attrs['muted'] === 'true'): ?>muted<?php endif; ?>>
+      <?php echo implode(' ', $video_attrs); ?>>
       <source src="<?php echo esc_url($video_url); ?>" type="video/mp4">
       <p><?php _e('Your browser does not support the video tag.', 'screen-recorder-pro'); ?></p>
     </video>
@@ -470,205 +354,308 @@ class SRP_Device_Mockups
   }
 
   /**
-   * Enhanced CSS styles with better visual quality
+   * Render PNG frame styles
    */
-  private static function render_enhanced_device_styles($device_type)
+  private static function render_png_frame_styles()
   {
-    static $rendered_styles = [];
-
-    if (in_array($device_type, $rendered_styles)) {
-      return;
-    }
-
-    $rendered_styles[] = $device_type;
+    static $styles_rendered = false;
+    if ($styles_rendered) return;
+    $styles_rendered = true;
 
   ?>
     <style>
-      /* Enhanced Device Mockup Styles with better quality */
-      .srp-device-mockup {
+      /* PNG Device Frame Styles */
+      .srp-png-device-frame {
         display: inline-block;
-        position: relative;
         margin: 20px auto;
+        position: relative;
+      }
+
+      .srp-frame-container {
         filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.3));
+        transition: transform 0.3s ease;
       }
 
-      .srp-device-frame {
-        position: relative;
-        background: linear-gradient(145deg, #2d2d2d, #1a1a1a);
-        border-radius: 25px;
-        padding: 20px;
-        box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.1),
-          inset 0 -1px 0 rgba(0, 0, 0, 0.2),
-          0 8px 40px rgba(0, 0, 0, 0.4);
+      .srp-device-frame-overlay {
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
       }
 
-      .srp-device-screen {
-        position: relative;
-        background: #000;
-        border-radius: 15px;
-        overflow: hidden;
-        box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+      .srp-frame-video {
+        transition: opacity 0.3s ease;
       }
 
-      .srp-device-video {
-        width: 100%;
-        height: 100%;
-        display: block;
-        border-radius: 15px;
+      /* Responsive scaling */
+      @media (max-width: 1200px) {
+        .srp-png-device-frame .srp-frame-container {
+          transform: scale(0.9);
+        }
       }
 
-      /* Enhanced iPhone 15 Pro with more realistic details */
-      .srp-device-iphone-15-pro .srp-device-frame {
-        width: 250px;
-        height: 520px;
-        background: linear-gradient(145deg, #1d1d1f, #000);
-        border-radius: 35px;
-        padding: 15px;
-        position: relative;
-        box-shadow:
-          0 0 0 2px #2d2d2d,
-          0 20px 60px rgba(0, 0, 0, 0.6);
-      }
-
-      /* Dynamic Island */
-      .srp-device-iphone-15-pro .srp-device-frame::before {
-        content: '';
-        position: absolute;
-        top: 12px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 60px;
-        height: 25px;
-        background: #000;
-        border-radius: 0 0 15px 15px;
-        z-index: 10;
-        box-shadow: inset 0 -2px 4px rgba(255, 255, 255, 0.1);
-      }
-
-      /* Camera lens */
-      .srp-device-iphone-15-pro .srp-device-frame::after {
-        content: '';
-        position: absolute;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 8px;
-        height: 8px;
-        background: radial-gradient(circle, #333, #000);
-        border-radius: 50%;
-        z-index: 11;
-      }
-
-      .srp-device-iphone-15-pro .srp-device-screen {
-        width: 220px;
-        height: 490px;
-        border-radius: 25px;
-      }
-
-      /* Enhanced responsive design */
       @media (max-width: 768px) {
-        .srp-device-mockup {
-          transform: scale(0.8);
-          margin: 10px auto;
+        .srp-png-device-frame .srp-frame-container {
+          transform: scale(0.7);
         }
       }
 
       @media (max-width: 480px) {
-        .srp-device-mockup {
-          transform: scale(0.6);
-          margin: 5px auto;
+        .srp-png-device-frame .srp-frame-container {
+          transform: scale(0.5);
         }
       }
 
-      /* Premium badge for enhanced mockups */
-      .srp-css-fallback::after {
-        content: 'Enhanced';
-        position: absolute;
-        top: -10px;
-        right: -10px;
-        background: linear-gradient(45deg, #667eea, #764ba2);
-        color: white;
-        padding: 4px 8px;
-        border-radius: 12px;
-        font-size: 10px;
-        font-weight: 600;
-        text-transform: uppercase;
-        z-index: 100;
+      /* Loading state */
+      .srp-frame-video[data-loading="true"] {
+        background: #f0f0f0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .srp-frame-video[data-loading="true"]::before {
+        content: "Loading...";
+        color: #666;
+        font-size: 14px;
       }
     </style>
   <?php
   }
 
   /**
-   * Add settings page for API configuration
+   * CSS fallback styles
    */
-  public static function add_settings_page()
+  private static function render_css_fallback_styles($device_type)
+  {
+    static $rendered_types = [];
+    if (in_array($device_type, $rendered_types)) return;
+    $rendered_types[] = $device_type;
+
+  ?>
+    <style>
+      /* CSS Fallback Styles for <?php echo esc_attr($device_type); ?> */
+      .srp-css-fallback-frame {
+        display: inline-block;
+        margin: 20px auto;
+        position: relative;
+      }
+
+      .srp-css-device-frame {
+        background: linear-gradient(145deg, #2d2d2d, #1a1a1a);
+        border-radius: 25px;
+        padding: 20px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        position: relative;
+      }
+
+      .srp-css-device-screen {
+        background: #000;
+        border-radius: 15px;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .srp-css-device-video {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      /* Device-specific fallback styles */
+      <?php if (strpos($device_type, 'iphone') !== false): ?>.srp-device-<?php echo str_replace('_', '-', $device_type); ?>.srp-css-device-frame {
+        width: 280px;
+        height: 580px;
+        border-radius: 38px;
+        padding: 12px;
+      }
+
+      .srp-device-<?php echo str_replace('_', '-', $device_type); ?>.srp-css-device-screen {
+        width: 256px;
+        height: 556px;
+        border-radius: 28px;
+      }
+
+      <?php elseif (strpos($device_type, 'macbook') !== false): ?>.srp-device-<?php echo str_replace('_', '-', $device_type); ?>.srp-css-device-frame {
+        width: 500px;
+        height: 320px;
+        border-radius: 8px;
+        padding: 15px 20px 0 20px;
+      }
+
+      .srp-device-<?php echo str_replace('_', '-', $device_type); ?>.srp-css-device-screen {
+        width: 460px;
+        height: 290px;
+        border-radius: 4px;
+      }
+
+      <?php endif; ?>
+      /* Responsive fallback */
+      @media (max-width: 768px) {
+        .srp-css-fallback-frame {
+          transform: scale(0.8);
+        }
+      }
+    </style>
+  <?php
+  }
+
+  /**
+   * Admin function to check which frame files are missing
+   */
+  public static function check_frame_assets()
+  {
+    $frames = self::get_device_frames();
+    $missing = [];
+    $existing = [];
+
+    foreach ($frames as $device_key => $frame_config) {
+      $frame_path = self::$frames_dir . $frame_config['frame_file'];
+      if (file_exists($frame_path)) {
+        $existing[] = [
+          'device' => $device_key,
+          'name' => $frame_config['name'],
+          'file' => $frame_config['frame_file'],
+          'size' => size_format(filesize($frame_path))
+        ];
+      } else {
+        $missing[] = [
+          'device' => $device_key,
+          'name' => $frame_config['name'],
+          'file' => $frame_config['frame_file']
+        ];
+      }
+    }
+
+    return [
+      'existing' => $existing,
+      'missing' => $missing,
+      'frames_dir' => self::$frames_dir,
+      'frames_url' => self::$frames_url
+    ];
+  }
+
+  /**
+   * Add settings page for frame management
+   */
+  public static function add_frame_settings_page()
   {
     add_submenu_page(
       'screen-recorder',
-      __('Device Mockups', 'screen-recorder-pro'),
-      __('Device Mockups', 'screen-recorder-pro'),
+      __('Device Frames', 'screen-recorder-pro'),
+      __('Device Frames', 'screen-recorder-pro'),
       'manage_options',
-      'screen-recorder-mockups',
-      [__CLASS__, 'render_settings_page']
+      'screen-recorder-frames',
+      [__CLASS__, 'render_frame_settings_page']
     );
   }
 
-  public static function render_settings_page()
+  public static function render_frame_settings_page()
   {
-    if (isset($_POST['save_mockup_settings'])) {
-      $settings = [
-        'mediamodifier_api_key' => sanitize_text_field($_POST['mediamodifier_api_key'] ?? ''),
-        'mockup_quality' => sanitize_text_field($_POST['mockup_quality'] ?? 'high'),
-        'cache_duration' => intval($_POST['cache_duration'] ?? 3600)
-      ];
-
-      update_option('srp_device_mockup_settings', $settings);
-      echo '<div class="notice notice-success"><p>Settings saved!</p></div>';
-    }
-
-    $settings = get_option('srp_device_mockup_settings', []);
+    $frame_status = self::check_frame_assets();
   ?>
     <div class="wrap">
-      <h1><?php _e('Device Mockup Settings', 'screen-recorder-pro'); ?></h1>
+      <h1><?php _e('Device Frame Assets', 'screen-recorder-pro'); ?></h1>
 
-      <form method="post" action="">
-        <table class="form-table">
-          <tr>
-            <th scope="row"><?php _e('Mediamodifier API Key', 'screen-recorder-pro'); ?></th>
-            <td>
-              <input type="text" name="mediamodifier_api_key"
-                value="<?php echo esc_attr($settings['mediamodifier_api_key'] ?? ''); ?>"
-                class="regular-text" />
-              <p class="description">
-                <?php _e('Get your API key from', 'screen-recorder-pro'); ?>
-                <a href="https://mediamodifier.com/mockup-api" target="_blank">Mediamodifier</a>
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <th scope="row"><?php _e('Mockup Quality', 'screen-recorder-pro'); ?></th>
-            <td>
-              <select name="mockup_quality">
-                <option value="standard" <?php selected($settings['mockup_quality'] ?? 'high', 'standard'); ?>>
-                  <?php _e('Standard (CSS-based)', 'screen-recorder-pro'); ?>
-                </option>
-                <option value="high" <?php selected($settings['mockup_quality'] ?? 'high', 'high'); ?>>
-                  <?php _e('High (API-based)', 'screen-recorder-pro'); ?>
-                </option>
-              </select>
-            </td>
-          </tr>
+      <div class="notice notice-info">
+        <p><strong><?php _e('Frame Assets Directory:', 'screen-recorder-pro'); ?></strong>
+          <code><?php echo esc_html($frame_status['frames_dir']); ?></code>
+        </p>
+        <p><?php _e('Upload your PNG frame files to this directory. Each frame should have a transparent screen area where the video will be displayed.', 'screen-recorder-pro'); ?></p>
+      </div>
+
+      <?php if (!empty($frame_status['existing'])): ?>
+        <h2><?php _e('Available Frames', 'screen-recorder-pro'); ?></h2>
+        <table class="wp-list-table widefat fixed striped">
+          <thead>
+            <tr>
+              <th><?php _e('Device', 'screen-recorder-pro'); ?></th>
+              <th><?php _e('File', 'screen-recorder-pro'); ?></th>
+              <th><?php _e('Size', 'screen-recorder-pro'); ?></th>
+              <th><?php _e('Preview', 'screen-recorder-pro'); ?></th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($frame_status['existing'] as $frame): ?>
+              <tr>
+                <td><strong><?php echo esc_html($frame['name']); ?></strong></td>
+                <td><code><?php echo esc_html($frame['file']); ?></code></td>
+                <td><?php echo esc_html($frame['size']); ?></td>
+                <td>
+                  <img src="<?php echo esc_url($frame_status['frames_url'] . $frame['file']); ?>"
+                    alt="<?php echo esc_attr($frame['name']); ?>"
+                    style="max-width: 100px; height: auto;">
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      <?php endif; ?>
+
+      <?php if (!empty($frame_status['missing'])): ?>
+        <h2><?php _e('Missing Frame Files', 'screen-recorder-pro'); ?></h2>
+        <table class="wp-list-table widefat fixed striped">
+          <thead>
+            <tr>
+              <th><?php _e('Device', 'screen-recorder-pro'); ?></th>
+              <th><?php _e('Expected File', 'screen-recorder-pro'); ?></th>
+              <th><?php _e('Status', 'screen-recorder-pro'); ?></th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($frame_status['missing'] as $frame): ?>
+              <tr>
+                <td><strong><?php echo esc_html($frame['name']); ?></strong></td>
+                <td><code><?php echo esc_html($frame['file']); ?></code></td>
+                <td><span style="color: #d63638;"><?php _e('Missing', 'screen-recorder-pro'); ?></span></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
         </table>
 
-        <?php submit_button(__('Save Settings', 'screen-recorder-pro'), 'primary', 'save_mockup_settings'); ?>
-      </form>
+        <div class="notice notice-warning">
+          <p><?php _e('Missing frame files will fall back to CSS-based frames with lower visual quality.', 'screen-recorder-pro'); ?></p>
+        </div>
+      <?php endif; ?>
+
+      <h2><?php _e('Frame Specifications', 'screen-recorder-pro'); ?></h2>
+      <p><?php _e('When creating your PNG frame files, use these specifications:', 'screen-recorder-pro'); ?></p>
+
+      <table class="wp-list-table widefat fixed striped">
+        <thead>
+          <tr>
+            <th><?php _e('Device', 'screen-recorder-pro'); ?></th>
+            <th><?php _e('PNG Size', 'screen-recorder-pro'); ?></th>
+            <th><?php _e('Screen Area', 'screen-recorder-pro'); ?></th>
+            <th><?php _e('Notes', 'screen-recorder-pro'); ?></th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php
+          $frames = self::get_device_frames();
+          foreach ($frames as $device_key => $config):
+          ?>
+            <tr>
+              <td><strong><?php echo esc_html($config['name']); ?></strong></td>
+              <td><?php echo $config['total_size']['width']; ?> × <?php echo $config['total_size']['height']; ?>px</td>
+              <td>
+                X: <?php echo $config['screen_area']['x']; ?>px,
+                Y: <?php echo $config['screen_area']['y']; ?>px<br>
+                <?php echo $config['screen_area']['width']; ?> × <?php echo $config['screen_area']['height']; ?>px
+              </td>
+              <td>
+                <?php _e('Transparent screen area', 'screen-recorder-pro'); ?><br>
+                <small><?php echo ucfirst($config['type']); ?> device</small>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
     </div>
 <?php
   }
 }
 
-// Initialize the enhanced mockups
+// Initialize the frame system
 add_action('init', ['SRP_Device_Mockups', 'init']);
-add_action('admin_menu', ['SRP_Device_Mockups', 'add_settings_page'], 20);
+add_action('admin_menu', ['SRP_Device_Mockups', 'add_frame_settings_page'], 25);

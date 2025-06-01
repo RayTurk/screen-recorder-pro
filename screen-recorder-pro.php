@@ -27,7 +27,8 @@ $includes = [
   'includes/class-screenshotone-api.php',
   'includes/class-recordings-manager.php',
   'includes/class-admin-ui.php',
-  'includes/class-shortcode-handler.php'
+  'includes/class-shortcode-handler.php',
+  'includes/class-device-mockups.php'
 ];
 
 foreach ($includes as $include) {
@@ -188,89 +189,70 @@ class ScreenRecorderPro
   public static function get_device_viewport_options()
   {
     return [
+      // Mobile options
+      'mobile_iphone_xr' => [
+        'name' => __('Mobile (iPhone XR)', 'screen-recorder-pro'),
+        'type' => 'mobile',
+        'width' => 414,
+        'height' => 896,
+        'device_frame' => true
+      ],
+
+      // Tablet options
+      'tablet_ipad_air_portrait' => [
+        'name' => __('Tablet (iPad Air 2020) Portrait', 'screen-recorder-pro'),
+        'type' => 'tablet',
+        'width' => 820,
+        'height' => 1180,
+        'device_frame' => true
+      ],
+      'tablet_ipad_air_landscape' => [
+        'name' => __('Tablet (iPad Air 2020) Landscape', 'screen-recorder-pro'),
+        'type' => 'tablet',
+        'width' => 1180,
+        'height' => 820,
+        'device_frame' => true
+      ],
+
+      // Laptop options
+      'laptop_macbook_pro' => [
+        'name' => __('Laptop (MacBook Pro)', 'screen-recorder-pro'),
+        'type' => 'laptop',
+        'width' => 1440,
+        'height' => 900,
+        'device_frame' => true
+      ],
+
       // Desktop options
-      'desktop_1920' => [
+      'desktop_imac_pro' => [
+        'name' => __('Desktop (iMac Pro)', 'screen-recorder-pro'),
+        'type' => 'desktop',
+        'width' => 1920,
+        'height' => 1080,
+        'device_frame' => true
+      ],
+
+      // Plain viewport options (no frames)
+      'viewport_1920' => [
         'name' => __('Desktop - Full HD (1920×1080)', 'screen-recorder-pro'),
         'type' => 'desktop',
         'width' => 1920,
         'height' => 1080,
         'device_frame' => false
       ],
-      'desktop_1440' => [
+      'viewport_1440' => [
         'name' => __('Desktop - Standard (1440×900)', 'screen-recorder-pro'),
         'type' => 'desktop',
         'width' => 1440,
         'height' => 900,
         'device_frame' => false
       ],
-      'desktop_1280' => [
+      'viewport_1280' => [
         'name' => __('Desktop - Compact (1280×720)', 'screen-recorder-pro'),
         'type' => 'desktop',
         'width' => 1280,
         'height' => 720,
         'device_frame' => false
-      ],
-
-      // Laptop options
-      'laptop_macbook' => [
-        'name' => __('MacBook Pro (1440×900)', 'screen-recorder-pro'),
-        'type' => 'laptop',
-        'width' => 1440,
-        'height' => 900,
-        'device_frame' => true,
-        'frame_type' => 'macbook'
-      ],
-      'laptop_generic' => [
-        'name' => __('Laptop Generic (1366×768)', 'screen-recorder-pro'),
-        'type' => 'laptop',
-        'width' => 1366,
-        'height' => 768,
-        'device_frame' => true,
-        'frame_type' => 'laptop'
-      ],
-
-      // Tablet options
-      'tablet_ipad_pro' => [
-        'name' => __('iPad Pro (834×1194)', 'screen-recorder-pro'),
-        'type' => 'tablet',
-        'width' => 834,
-        'height' => 1194,
-        'device_frame' => true,
-        'frame_type' => 'ipad'
-      ],
-      'tablet_ipad' => [
-        'name' => __('iPad Standard (820×1180)', 'screen-recorder-pro'),
-        'type' => 'tablet',
-        'width' => 820,
-        'height' => 1180,
-        'device_frame' => true,
-        'frame_type' => 'ipad'
-      ],
-
-      // Phone options
-      'phone_iphone_15_pro' => [
-        'name' => __('iPhone 15 Pro (393×852)', 'screen-recorder-pro'),
-        'type' => 'mobile',
-        'width' => 393,
-        'height' => 852,
-        'device_frame' => true,
-        'frame_type' => 'iphone'
-      ],
-      'phone_iphone_15_pro_max' => [
-        'name' => __('iPhone 15 Pro Max (430×932)', 'screen-recorder-pro'),
-        'type' => 'mobile',
-        'width' => 430,
-        'height' => 932,
-        'device_frame' => true,
-        'frame_type' => 'iphone'
-      ],
-      'phone_samsung_s24' => [
-        'name' => __('Samsung Galaxy S24 (384×854)', 'screen-recorder-pro'),
-        'type' => 'mobile',
-        'width' => 384,
-        'height' => 854,
-        'device_frame' => true,
-        'frame_type' => 'android'
       ]
     ];
   }

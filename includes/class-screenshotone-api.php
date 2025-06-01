@@ -115,7 +115,6 @@ class SRP_ScreenshotOne_API
     $params = array_merge([
       'access_key' => $this->api_key,
       'url' => $url,
-      'scenario' => 'scroll',
       'format' => 'mp4',
       'duration' => 5,
       'viewport_width' => 1440,
