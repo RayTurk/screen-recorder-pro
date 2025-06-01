@@ -23,10 +23,12 @@ define('SRP_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
 // Load plugin classes
 $includes = [
+  'includes/config-secure.php',
   'includes/class-screenshotone-api.php',
   'includes/class-recordings-manager.php',
   'includes/class-admin-ui.php',
-  'includes/class-shortcode-handler.php'
+  'includes/class-shortcode-handler.php',
+  'includes/class-device-mockups.php'
 ];
 
 foreach ($includes as $include) {
@@ -38,7 +40,8 @@ foreach ($includes as $include) {
 
 // Initialize Freemius (optional)
 if (!function_exists('srp_fs')) {
-  function srp_fs() {
+  function srp_fs()
+  {
     global $srp_fs;
     if (!isset($srp_fs)) {
       $freemius_file = SRP_PLUGIN_DIR . 'freemius/start.php';
@@ -59,9 +62,16 @@ if (!function_exists('srp_fs')) {
         ]);
       } else {
         // Mock object for testing
-        class SRP_Freemius_Mock {
-          public function is_plan($plan) { return false; }
-          public function get_upgrade_url() { return admin_url('admin.php?page=screen-recorder-settings'); }
+        class SRP_Freemius_Mock
+        {
+          public function is_plan($plan)
+          {
+            return false;
+          }
+          public function get_upgrade_url()
+          {
+            return admin_url('admin.php?page=screen-recorder-settings');
+          }
         }
         $srp_fs = new SRP_Freemius_Mock();
       }
@@ -71,33 +81,38 @@ if (!function_exists('srp_fs')) {
 }
 
 // Main plugin class
-class ScreenRecorderPro {
+class ScreenRecorderPro
+{
   private static $instance = null;
   private $api;
   private $recordings_manager;
   private $admin_ui;
   private $shortcode_handler;
 
-  public static function get_instance() {
+  public static function get_instance()
+  {
     if (null === self::$instance) {
       self::$instance = new self();
     }
     return self::$instance;
   }
 
-  private function __construct() {
+  private function __construct()
+  {
     $this->init();
     $this->hooks();
   }
 
-  private function init() {
+  private function init()
+  {
     $this->api = new SRP_ScreenshotOne_API();
     $this->recordings_manager = new SRP_Recordings_Manager();
     $this->admin_ui = new SRP_Admin_UI();
     $this->shortcode_handler = new SRP_Shortcode_Handler();
   }
 
-  private function hooks() {
+  private function hooks()
+  {
     // Activation/Deactivation hooks
     register_activation_hook(__FILE__, [$this, 'activate']);
     register_deactivation_hook(__FILE__, [$this, 'deactivate']);
@@ -111,6 +126,7 @@ class ScreenRecorderPro {
     add_action('wp_ajax_srp_create_recording', [$this, 'ajax_create_recording']);
     add_action('wp_ajax_srp_check_recording_status', [$this, 'ajax_check_status']);
     add_action('wp_ajax_srp_delete_recording', [$this, 'ajax_delete_recording']);
+    add_action('wp_ajax_srp_get_recording_count', [$this, 'ajax_get_recording_count']);
 
     // Shortcodes
     add_shortcode('screen_recording', [$this->shortcode_handler, 'render']);
@@ -124,9 +140,10 @@ class ScreenRecorderPro {
     add_action('manage_pages_custom_column', [$this, 'render_recording_column'], 10, 2);
   }
 
-  public function activate() {
+  public function activate()
+  {
     $this->recordings_manager->create_table();
-    
+
     add_option('srp_settings', [
       'api_key' => '',
       'default_format' => 'mp4',
@@ -141,11 +158,13 @@ class ScreenRecorderPro {
     }
   }
 
-  public function deactivate() {
+  public function deactivate()
+  {
     wp_clear_scheduled_hook('srp_cleanup_temp_files');
   }
 
-  public function enqueue_admin_assets($hook) {
+  public function enqueue_admin_assets($hook)
+  {
     if (strpos($hook, 'screen-recorder') === false && !in_array($hook, ['post.php', 'post-new.php'])) {
       return;
     }
@@ -168,7 +187,8 @@ class ScreenRecorderPro {
   /**
    * AJAX handler to create recordings
    */
-  public function ajax_create_recording() {
+  public function ajax_create_recording()
+  {
     check_ajax_referer('srp_ajax_nonce', 'nonce');
 
     if (!current_user_can('edit_posts')) {
@@ -176,7 +196,7 @@ class ScreenRecorderPro {
     }
 
     $post_id = intval($_POST['post_id'] ?? 0);
-    
+
     // Get URL from direct input or from post_id
     $url = '';
     if (!empty($_POST['url'])) {
@@ -184,7 +204,7 @@ class ScreenRecorderPro {
     } elseif ($post_id) {
       $url = get_permalink($post_id);
     }
-    
+
     if (empty($url)) {
       wp_send_json_error(['message' => 'No URL provided']);
     }
@@ -203,10 +223,10 @@ class ScreenRecorderPro {
     }
 
     $settings = get_option('srp_settings', []);
-    $api_key = $settings['api_key'] ?? '';
+    $api_key = srp_get_api_key(); // Use secure API key function
 
     if (empty($api_key)) {
-      wp_send_json_error(['message' => __('API key not configured.', 'screen-recorder-pro')]);
+      wp_send_json_error(['message' => __('Plugin not properly configured. Please contact support.', 'screen-recorder-pro')]);
     }
 
     // Create the video
@@ -241,7 +261,8 @@ class ScreenRecorderPro {
   /**
    * Create and download scrolling video
    */
-  private function create_and_download_video($target_url, $access_key, $options = []) {
+  private function create_and_download_video($target_url, $access_key, $options = [])
+  {
     // Build API parameters with the correct scroll scenario
     $query = [
       'access_key' => $access_key,
@@ -286,7 +307,8 @@ class ScreenRecorderPro {
   /**
    * Save video to WordPress media library
    */
-  private function save_video_to_wordpress($video_data, $source_url, $options) {
+  private function save_video_to_wordpress($video_data, $source_url, $options)
+  {
     // Generate filename
     $post = get_post($options['post_id'] ?? 0);
     $post_title = $post ? sanitize_title($post->post_title) : 'page';
@@ -341,7 +363,8 @@ class ScreenRecorderPro {
     ];
   }
 
-  public function ajax_check_status() {
+  public function ajax_check_status()
+  {
     check_ajax_referer('srp_ajax_nonce', 'nonce');
     $recording_id = intval($_POST['recording_id']);
     $recording = $this->recordings_manager->get($recording_id);
@@ -357,7 +380,8 @@ class ScreenRecorderPro {
     ]);
   }
 
-  public function ajax_delete_recording() {
+  public function ajax_delete_recording()
+  {
     check_ajax_referer('srp_ajax_nonce', 'nonce');
 
     if (!current_user_can('delete_posts')) {
@@ -373,20 +397,37 @@ class ScreenRecorderPro {
     }
   }
 
-  private function check_usage_limits() {
-    $is_pro = function_exists('srp_fs') ? srp_fs()->is_plan('pro') : false;
-    $monthly_limit = $is_pro ? 100 : 10;
+  private function check_usage_limits()
+  {
+    $is_premium = srp_is_premium_user();
+    $monthly_limit = $is_premium ? SRP_PREMIUM_MONTHLY_LIMIT : SRP_FREE_MONTHLY_LIMIT;
     $current_month = date('Y-m');
     $usage_count = $this->recordings_manager->get_monthly_count($current_month);
     return $usage_count < $monthly_limit;
   }
 
-  public function add_recording_column($columns) {
+  /**
+   * AJAX handler to get current recording count
+   */
+  public function ajax_get_recording_count()
+  {
+    check_ajax_referer('srp_ajax_nonce', 'nonce');
+
+    $total_recordings = $this->recordings_manager->get_count_by_status('completed');
+
+    wp_send_json_success([
+      'total_recordings' => $total_recordings
+    ]);
+  }
+
+  public function add_recording_column($columns)
+  {
     $columns['screen_recording'] = __('Recording', 'screen-recorder-pro');
     return $columns;
   }
 
-  public function render_recording_column($column, $post_id) {
+  public function render_recording_column($column, $post_id)
+  {
     if ($column === 'screen_recording') {
       $recording = $this->recordings_manager->get_by_post_id($post_id);
       if ($recording && $recording->status === 'completed') {
@@ -401,7 +442,8 @@ class ScreenRecorderPro {
    * Debug shortcode to troubleshoot recording issues
    * Usage: [srp_debug id="123"]
    */
-  public function debug_shortcode($atts) {
+  public function debug_shortcode($atts)
+  {
     if (!current_user_can('manage_options')) {
       return 'Debug information only available to administrators.';
     }
@@ -420,14 +462,15 @@ class ScreenRecorderPro {
    * Fix table shortcode to recreate database table
    * Usage: [srp_fix_table]
    */
-  public function fix_table_shortcode($atts) {
+  public function fix_table_shortcode($atts)
+  {
     if (!current_user_can('manage_options')) {
       return 'Table fix only available to administrators.';
     }
 
     // Recreate the table
     $this->recordings_manager->create_table();
-    
+
     return 'Database table has been recreated. Try creating a new recording.';
   }
 }
