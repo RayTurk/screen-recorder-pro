@@ -27,8 +27,7 @@ $includes = [
   'includes/class-screenshotone-api.php',
   'includes/class-recordings-manager.php',
   'includes/class-admin-ui.php',
-  'includes/class-shortcode-handler.php',
-  'includes/class-device-mockups.php'
+  'includes/class-shortcode-handler.php'
 ];
 
 foreach ($includes as $include) {
@@ -120,7 +119,6 @@ class ScreenRecorderPro
     // Admin hooks
     add_action('admin_menu', [$this->admin_ui, 'add_menu_pages']);
     add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
-    add_action('admin_post_srp_save_settings', [$this->admin_ui, 'save_settings']);
 
     // AJAX handlers
     add_action('wp_ajax_srp_create_recording', [$this, 'ajax_create_recording']);
@@ -131,7 +129,7 @@ class ScreenRecorderPro
     // Shortcodes
     add_shortcode('screen_recording', [$this->shortcode_handler, 'render']);
     add_shortcode('srp_debug', [$this, 'debug_shortcode']);
-    add_shortcode('srp_fix_table', [$this, 'fix_table_shortcode']); // Temporary fix shortcode
+    add_shortcode('srp_fix_table', [$this, 'fix_table_shortcode']);
 
     // Add recording column to posts/pages
     add_filter('manage_post_posts_columns', [$this, 'add_recording_column']);
@@ -185,6 +183,99 @@ class ScreenRecorderPro
   }
 
   /**
+   * Get combined device/viewport options
+   */
+  public static function get_device_viewport_options()
+  {
+    return [
+      // Desktop options
+      'desktop_1920' => [
+        'name' => __('Desktop - Full HD (1920×1080)', 'screen-recorder-pro'),
+        'type' => 'desktop',
+        'width' => 1920,
+        'height' => 1080,
+        'device_frame' => false
+      ],
+      'desktop_1440' => [
+        'name' => __('Desktop - Standard (1440×900)', 'screen-recorder-pro'),
+        'type' => 'desktop',
+        'width' => 1440,
+        'height' => 900,
+        'device_frame' => false
+      ],
+      'desktop_1280' => [
+        'name' => __('Desktop - Compact (1280×720)', 'screen-recorder-pro'),
+        'type' => 'desktop',
+        'width' => 1280,
+        'height' => 720,
+        'device_frame' => false
+      ],
+
+      // Laptop options
+      'laptop_macbook' => [
+        'name' => __('MacBook Pro (1440×900)', 'screen-recorder-pro'),
+        'type' => 'laptop',
+        'width' => 1440,
+        'height' => 900,
+        'device_frame' => true,
+        'frame_type' => 'macbook'
+      ],
+      'laptop_generic' => [
+        'name' => __('Laptop Generic (1366×768)', 'screen-recorder-pro'),
+        'type' => 'laptop',
+        'width' => 1366,
+        'height' => 768,
+        'device_frame' => true,
+        'frame_type' => 'laptop'
+      ],
+
+      // Tablet options
+      'tablet_ipad_pro' => [
+        'name' => __('iPad Pro (834×1194)', 'screen-recorder-pro'),
+        'type' => 'tablet',
+        'width' => 834,
+        'height' => 1194,
+        'device_frame' => true,
+        'frame_type' => 'ipad'
+      ],
+      'tablet_ipad' => [
+        'name' => __('iPad Standard (820×1180)', 'screen-recorder-pro'),
+        'type' => 'tablet',
+        'width' => 820,
+        'height' => 1180,
+        'device_frame' => true,
+        'frame_type' => 'ipad'
+      ],
+
+      // Phone options
+      'phone_iphone_15_pro' => [
+        'name' => __('iPhone 15 Pro (393×852)', 'screen-recorder-pro'),
+        'type' => 'mobile',
+        'width' => 393,
+        'height' => 852,
+        'device_frame' => true,
+        'frame_type' => 'iphone'
+      ],
+      'phone_iphone_15_pro_max' => [
+        'name' => __('iPhone 15 Pro Max (430×932)', 'screen-recorder-pro'),
+        'type' => 'mobile',
+        'width' => 430,
+        'height' => 932,
+        'device_frame' => true,
+        'frame_type' => 'iphone'
+      ],
+      'phone_samsung_s24' => [
+        'name' => __('Samsung Galaxy S24 (384×854)', 'screen-recorder-pro'),
+        'type' => 'mobile',
+        'width' => 384,
+        'height' => 854,
+        'device_frame' => true,
+        'frame_type' => 'android'
+      ]
+    ];
+  }
+
+  /**
    * AJAX handler to create recordings
    */
   public function ajax_create_recording()
@@ -209,12 +300,23 @@ class ScreenRecorderPro
       wp_send_json_error(['message' => 'No URL provided']);
     }
 
+    // Get device/viewport settings
+    $device_key = sanitize_text_field($_POST['device'] ?? 'desktop_1440');
+    $device_options = self::get_device_viewport_options();
+    $device_config = $device_options[$device_key] ?? $device_options['desktop_1440'];
+
+    // Check if device frame is enabled
+    $show_device_frame = isset($_POST['show_device_frame']) ? (bool)$_POST['show_device_frame'] : false;
+
     $options = [
       'format' => sanitize_text_field($_POST['format'] ?? 'mp4'),
       'duration' => intval($_POST['duration'] ?? 5),
       'scenario' => sanitize_text_field($_POST['scenario'] ?? 'scroll'),
-      'viewport_width' => intval($_POST['viewport_width'] ?? 1440),
-      'viewport_height' => intval($_POST['viewport_height'] ?? 900),
+      'viewport_width' => $device_config['width'],
+      'viewport_height' => $device_config['height'],
+      'device_type' => $device_config['type'],
+      'device_key' => $device_key,
+      'show_device_frame' => $show_device_frame,
       'post_id' => $post_id
     ];
 
@@ -222,8 +324,7 @@ class ScreenRecorderPro
       wp_send_json_error(['message' => __('You have reached your monthly recording limit.', 'screen-recorder-pro')]);
     }
 
-    $settings = get_option('srp_settings', []);
-    $api_key = srp_get_api_key(); // Use secure API key function
+    $api_key = srp_get_api_key();
 
     if (empty($api_key)) {
       wp_send_json_error(['message' => __('Plugin not properly configured. Please contact support.', 'screen-recorder-pro')]);
@@ -239,7 +340,7 @@ class ScreenRecorderPro
     // Save to database
     $recording_id = $this->recordings_manager->create([
       'post_id' => $post_id,
-      'url' => $url, // Use the actual URL
+      'url' => $url,
       'status' => 'completed',
       'options' => $options,
       'attachment_id' => $result['attachment_id'],
@@ -263,11 +364,11 @@ class ScreenRecorderPro
    */
   private function create_and_download_video($target_url, $access_key, $options = [])
   {
-    // Build API parameters with the correct scroll scenario
+    // Build API parameters
     $query = [
       'access_key' => $access_key,
       'url' => $target_url,
-      'scenario' => 'scroll', // This is the key parameter!
+      'scenario' => 'scroll',
       'format' => $options['format'] ?? 'mp4',
       'duration' => $options['duration'] ?? '5',
       'scroll_duration' => '1500',
@@ -275,7 +376,7 @@ class ScreenRecorderPro
       'scroll_complete' => 'true',
       'viewport_width' => $options['viewport_width'] ?? '1440',
       'viewport_height' => $options['viewport_height'] ?? '900',
-      'viewport_mobile' => 'false',
+      'viewport_mobile' => $options['device_type'] === 'mobile' ? 'true' : 'false',
       'block_ads' => 'true',
       'block_banners_by_heuristics' => 'true',
       'block_chats' => 'true',
@@ -286,22 +387,39 @@ class ScreenRecorderPro
 
     $api_url = 'https://api.screenshotone.com/animate?' . http_build_query($query);
 
-    // Make the request
-    $context = stream_context_create([
-      'http' => [
-        'method' => 'GET',
-        'timeout' => 120,
+    error_log('SRP ScreenshotOne API URL: ' . $api_url);
+
+    $response = wp_remote_get($api_url, [
+      'timeout' => 120,
+      'headers' => [
+        'User-Agent' => 'WordPress-ScreenRecorderPro/' . SRP_VERSION
       ]
     ]);
 
-    $response = file_get_contents($api_url, false, $context);
-
-    if ($response === false) {
-      return new WP_Error('api_error', 'Failed to create scrolling video from ScreenshotOne API');
+    if (is_wp_error($response)) {
+      $error_message = 'WordPress HTTP Error: ' . $response->get_error_message();
+      error_log('SRP ScreenshotOne Error: ' . $error_message);
+      return new WP_Error('api_error', $error_message);
     }
 
-    // Save to WordPress
-    return $this->save_video_to_wordpress($response, $target_url, $options);
+    $response_code = wp_remote_retrieve_response_code($response);
+    if ($response_code !== 200) {
+      $response_body = wp_remote_retrieve_body($response);
+      $error_message = 'ScreenshotOne API returned HTTP ' . $response_code . ': ' . $response_body;
+      error_log('SRP ScreenshotOne Error: ' . $error_message);
+      return new WP_Error('api_error', 'ScreenshotOne API error (HTTP ' . $response_code . ')');
+    }
+
+    $video_data = wp_remote_retrieve_body($response);
+
+    if (empty($video_data)) {
+      error_log('SRP ScreenshotOne Error: Empty response body');
+      return new WP_Error('api_error', 'ScreenshotOne API returned empty response');
+    }
+
+    error_log('SRP ScreenshotOne Success: Received ' . strlen($video_data) . ' bytes of video data');
+
+    return $this->save_video_to_wordpress($video_data, $target_url, $options);
   }
 
   /**
@@ -312,7 +430,8 @@ class ScreenRecorderPro
     // Generate filename
     $post = get_post($options['post_id'] ?? 0);
     $post_title = $post ? sanitize_title($post->post_title) : 'page';
-    $filename = $post_title . '_scroll_' . date('Y-m-d_H-i-s') . '.mp4';
+    $device_suffix = $options['device_key'] ?? 'desktop';
+    $filename = $post_title . '_' . $device_suffix . '_' . date('Y-m-d_H-i-s') . '.mp4';
 
     // Get upload directory
     $upload_dir = wp_upload_dir();
@@ -406,9 +525,6 @@ class ScreenRecorderPro
     return $usage_count < $monthly_limit;
   }
 
-  /**
-   * AJAX handler to get current recording count
-   */
   public function ajax_get_recording_count()
   {
     check_ajax_referer('srp_ajax_nonce', 'nonce');
@@ -438,10 +554,6 @@ class ScreenRecorderPro
     }
   }
 
-  /**
-   * Debug shortcode to troubleshoot recording issues
-   * Usage: [srp_debug id="123"]
-   */
   public function debug_shortcode($atts)
   {
     if (!current_user_can('manage_options')) {
@@ -458,19 +570,13 @@ class ScreenRecorderPro
     return $this->shortcode_handler->debug_recording($recording_id);
   }
 
-  /**
-   * Fix table shortcode to recreate database table
-   * Usage: [srp_fix_table]
-   */
   public function fix_table_shortcode($atts)
   {
     if (!current_user_can('manage_options')) {
       return 'Table fix only available to administrators.';
     }
 
-    // Recreate the table
     $this->recordings_manager->create_table();
-
     return 'Database table has been recreated. Try creating a new recording.';
   }
 }

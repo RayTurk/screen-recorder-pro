@@ -1,249 +1,249 @@
-/**
- * Screen Recorder Pro - Admin Styles
- */
-
-/* Dashboard Stats */
-.srp-dashboard-stats {
-  display: flex;
-  gap: 20px;
-  margin: 20px 0;
-  flex-wrap: wrap;
-}
-
-.srp-stat-box {
-  background: #fff;
-  border: 1px solid #ccd0d4;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
-  padding: 20px;
-  flex: 1;
-  min-width: 250px;
-}
-
-.srp-stat-box h3 {
-  margin: 0 0 10px 0;
-  color: #555;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.srp-stat-number {
-  font-size: 32px;
-  font-weight: 300;
-  margin: 10px 0;
-  color: #2271b1;
-}
-
-.srp-progress-bar {
-  height: 8px;
-  background: #e5e5e5;
-  border-radius: 4px;
-  overflow: hidden;
-  margin-top: 10px;
-}
-
-.srp-progress-fill {
-  height: 100%;
-  background: #2271b1;
-  transition: width 0.3s ease;
-}
-
-/* Recording Meta Box */
-.srp-recording-container {
-  padding: 10px 0;
-}
-
-.srp-recording-container .srp-options p {
-  margin: 10px 0;
-}
-
-.srp-recording-container label {
-  display: inline-block;
-  width: 80px;
-  font-weight: 600;
-}
-
-.srp-recording-container select,
-.srp-recording-container input[type="number"] {
-  width: 100%;
-  max-width: 150px;
-}
-
-.srp-recording-preview {
-  margin-top: 15px;
-}
-
-.srp-recording-preview video,
-.srp-recording-preview img {
-  max-width: 100%;
-  height: auto;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  margin-bottom: 10px;
-}
-
-.srp-recording-actions {
-  margin-top: 10px;
-}
-
-.srp-recording-actions p {
-  margin: 5px 0;
-  word-break: break-all;
-}
-
-.srp-recording-actions code {
-  display: inline-block;
-  padding: 3px 5px;
-  background: #f0f0f0;
-  font-size: 12px;
-}
-
-/* Status Messages */
-.srp-status {
-  margin: 10px 0;
-  font-style: italic;
-}
-
-.srp-processing {
-  color: #f0ad4e;
-}
-
-.srp-success {
-  color: #5cb85c;
-}
-
-.srp-error {
-  color: #d9534f;
-}
-
-/* Recording List Table */
-.srp-status-completed {
-  color: #46b450;
-  font-weight: 600;
-}
-
-.srp-status-processing {
-  color: #f0ad4e;
-}
-
-.srp-status-failed {
-  color: #dc3232;
-}
-
-/* Quick Start Section */
-.srp-quick-start {
-  background: #fff;
-  border: 1px solid #ccd0d4;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
-  padding: 20px;
-  margin-top: 20px;
-}
-
-.srp-quick-start h2 {
-  margin-top: 0;
-}
-
-.srp-quick-start ol {
-  margin-left: 20px;
-}
-
-.srp-quick-start li {
-  margin: 10px 0;
-  line-height: 1.6;
-}
-
-/* Settings Page */
-#srp-settings-form .form-table th {
-  width: 200px;
-}
-
-#srp-settings-form input[type="text"] {
-  width: 350px;
-}
-
-/* Loading States */
-.srp-loading {
-  display: inline-block;
-  width: 20px;
-  height: 20px;
-  border: 3px solid rgba(0, 0, 0, 0.1);
-  border-radius: 50%;
-  border-top-color: #2271b1;
-  animation: srp-spin 1s ease-in-out infinite;
-}
-
-@keyframes srp-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Responsive */
-@media screen and (max-width: 782px) {
-  .srp-dashboard-stats {
-    flex-direction: column;
-  }
-
-  .srp-stat-box {
-    min-width: 100%;
-  }
-
-  .srp-recording-container label {
-    display: block;
-    margin-bottom: 5px;
-  }
-
-  .srp-recording-container select,
-  .srp-recording-container input[type="number"] {
-    max-width: 100%;
-  }
-}
-
-/* Post/Page List Column */
-.column-screen_recording {
-  width: 50px;
-  text-align: center;
-}
-
-.column-screen_recording .dashicons {
-  font-size: 20px;
-  width: 20px;
-  height: 20px;
-}
-
-/* Upgrade Notice */
-.srp-upgrade-notice {
-  background: #fff3cd;
-  border: 1px solid #ffeaa7;
-  color: #856404;
-  padding: 10px 15px;
-  margin: 10px 0;
-  border-radius: 4px;
-}
-
-.srp-upgrade-notice a {
-  color: #533f03;
-  font-weight: 600;
-}
-
-/* Frontend Styles */
-.srp-recording-wrapper {
-  margin: 20px 0;
-}
-
-.srp-recording-wrapper video,
-.srp-recording-wrapper img {
-  max-width: 100%;
-  height: auto;
-  display: block;
-}
-
-/* Gutenberg Block */
-.wp-block-screen-recorder-pro-recording {
-  margin: 20px 0;
-}
-
-.wp-block-screen-recorder-pro-recording video,
-.wp-block-screen-recorder-pro-recording img {
-  max-width: 100%;
-  height: auto;
-}
+/**
+ * Screen Recorder Pro - Admin Styles
+ */
+
+/* Dashboard Stats */
+.srp-dashboard-stats {
+  display: flex;
+  gap: 20px;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+
+.srp-stat-box {
+  background: #fff;
+  border: 1px solid #ccd0d4;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+  padding: 20px;
+  flex: 1;
+  min-width: 250px;
+}
+
+.srp-stat-box h3 {
+  margin: 0 0 10px 0;
+  color: #555;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.srp-stat-number {
+  font-size: 32px;
+  font-weight: 300;
+  margin: 10px 0;
+  color: #2271b1;
+}
+
+.srp-progress-bar {
+  height: 8px;
+  background: #e5e5e5;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.srp-progress-fill {
+  height: 100%;
+  background: #2271b1;
+  transition: width 0.3s ease;
+}
+
+/* Recording Meta Box */
+.srp-recording-container {
+  padding: 10px 0;
+}
+
+.srp-recording-container .srp-options p {
+  margin: 10px 0;
+}
+
+.srp-recording-container label {
+  display: inline-block;
+  width: 80px;
+  font-weight: 600;
+}
+
+.srp-recording-container select,
+.srp-recording-container input[type="number"] {
+  width: 100%;
+  max-width: 150px;
+}
+
+.srp-recording-preview {
+  margin-top: 15px;
+}
+
+.srp-recording-preview video,
+.srp-recording-preview img {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.srp-recording-actions {
+  margin-top: 10px;
+}
+
+.srp-recording-actions p {
+  margin: 5px 0;
+  word-break: break-all;
+}
+
+.srp-recording-actions code {
+  display: inline-block;
+  padding: 3px 5px;
+  background: #f0f0f0;
+  font-size: 12px;
+}
+
+/* Status Messages */
+.srp-status {
+  margin: 10px 0;
+  font-style: italic;
+}
+
+.srp-processing {
+  color: #f0ad4e;
+}
+
+.srp-success {
+  color: #5cb85c;
+}
+
+.srp-error {
+  color: #d9534f;
+}
+
+/* Recording List Table */
+.srp-status-completed {
+  color: #46b450;
+  font-weight: 600;
+}
+
+.srp-status-processing {
+  color: #f0ad4e;
+}
+
+.srp-status-failed {
+  color: #dc3232;
+}
+
+/* Quick Start Section */
+.srp-quick-start {
+  background: #fff;
+  border: 1px solid #ccd0d4;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+  padding: 20px;
+  margin-top: 20px;
+}
+
+.srp-quick-start h2 {
+  margin-top: 0;
+}
+
+.srp-quick-start ol {
+  margin-left: 20px;
+}
+
+.srp-quick-start li {
+  margin: 10px 0;
+  line-height: 1.6;
+}
+
+/* Settings Page */
+#srp-settings-form .form-table th {
+  width: 200px;
+}
+
+#srp-settings-form input[type="text"] {
+  width: 350px;
+}
+
+/* Loading States */
+.srp-loading {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  border-top-color: #2271b1;
+  animation: srp-spin 1s ease-in-out infinite;
+}
+
+@keyframes srp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Responsive */
+@media screen and (max-width: 782px) {
+  .srp-dashboard-stats {
+    flex-direction: column;
+  }
+
+  .srp-stat-box {
+    min-width: 100%;
+  }
+
+  .srp-recording-container label {
+    display: block;
+    margin-bottom: 5px;
+  }
+
+  .srp-recording-container select,
+  .srp-recording-container input[type="number"] {
+    max-width: 100%;
+  }
+}
+
+/* Post/Page List Column */
+.column-screen_recording {
+  width: 50px;
+  text-align: center;
+}
+
+.column-screen_recording .dashicons {
+  font-size: 20px;
+  width: 20px;
+  height: 20px;
+}
+
+/* Upgrade Notice */
+.srp-upgrade-notice {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  color: #856404;
+  padding: 10px 15px;
+  margin: 10px 0;
+  border-radius: 4px;
+}
+
+.srp-upgrade-notice a {
+  color: #533f03;
+  font-weight: 600;
+}
+
+/* Frontend Styles */
+.srp-recording-wrapper {
+  margin: 20px 0;
+}
+
+.srp-recording-wrapper video,
+.srp-recording-wrapper img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Gutenberg Block */
+.wp-block-screen-recorder-pro-recording {
+  margin: 20px 0;
+}
+
+.wp-block-screen-recorder-pro-recording video,
+.wp-block-screen-recorder-pro-recording img {
+  max-width: 100%;
+  height: auto;
+}
