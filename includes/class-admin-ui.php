@@ -1,61 +1,115 @@
 <?php
-
-/**
- * Admin UI Class - Complete updated version
- */
-
-if (!defined('ABSPATH')) {
-  exit;
-}
-
 class SRP_Admin_UI
 {
-
   public function add_menu_pages()
   {
-    // Main menu page
-    add_menu_page(
+    // Debug logging
+    error_log('SRP: add_menu_pages called');
+    error_log('SRP: Current user can manage_options: ' . (current_user_can('manage_options') ? 'YES' : 'NO'));
+    error_log('SRP: Current user can edit_posts: ' . (current_user_can('edit_posts') ? 'YES' : 'NO'));
+    error_log('SRP: Is admin: ' . (is_admin() ? 'YES' : 'NO'));
+    error_log('SRP: Is super admin: ' . (is_super_admin() ? 'YES' : 'NO'));
+
+    // Determine capability - be more permissive
+    $capability = 'read'; // Start with the most basic capability
+
+    if (current_user_can('manage_options')) {
+      $capability = 'manage_options';
+    } elseif (current_user_can('edit_posts')) {
+      $capability = 'edit_posts';
+    }
+
+    error_log('SRP: Using capability: ' . $capability);
+
+    // Add main menu page
+    $main_page = add_menu_page(
       __('Screen Recorder Pro', 'screen-recorder-pro'),
       __('Screen Recorder', 'screen-recorder-pro'),
-      'manage_options',
+      $capability,
       'screen-recorder',
       [$this, 'render_main_page'],
       'dashicons-video-alt3',
       30
     );
 
-    // All Recordings submenu
-    add_submenu_page(
-      'screen-recorder',
-      __('All Recordings', 'screen-recorder-pro'),
-      __('All Recordings', 'screen-recorder-pro'),
-      'edit_posts',
-      'screen-recorder-all',
-      [$this, 'render_recordings_page']
-    );
+    error_log('SRP: Main page result: ' . ($main_page ? $main_page : 'FAILED'));
 
-    // Premium Settings submenu (hidden from users, only for premium API keys)
-    if (srp_is_premium_user()) {
-      add_submenu_page(
+    // Add submenu pages only if main page was successful
+    if ($main_page) {
+      // All Recordings submenu
+      $recordings_page = add_submenu_page(
         'screen-recorder',
-        __('Premium Settings', 'screen-recorder-pro'),
-        __('Premium Settings', 'screen-recorder-pro'),
-        'manage_options',
-        'screen-recorder-premium',
-        [$this, 'render_premium_settings_page']
+        __('All Recordings', 'screen-recorder-pro'),
+        __('All Recordings', 'screen-recorder-pro'),
+        $capability,
+        'screen-recorder-all',
+        [$this, 'render_recordings_page']
       );
+
+      error_log('SRP: Recordings page result: ' . ($recordings_page ? $recordings_page : 'FAILED'));
+
+      // Debug submenu (only for admins)
+      if (current_user_can('manage_options') || is_super_admin()) {
+        add_submenu_page(
+          'screen-recorder',
+          __('Debug Info', 'screen-recorder-pro'),
+          __('Debug Info', 'screen-recorder-pro'),
+          $capability,
+          'screen-recorder-debug',
+          [$this, 'render_debug_page']
+        );
+      }
+
+      // Premium Settings submenu - only for premium users
+      if (function_exists('srp_fs') && srp_fs()->can_use_premium_code()) {
+        add_submenu_page(
+          'screen-recorder',
+          __('Premium Settings', 'screen-recorder-pro'),
+          __('Premium Settings', 'screen-recorder-pro'),
+          'manage_options',
+          'screen-recorder-premium',
+          [$this, 'render_premium_settings_page']
+        );
+      }
+    } else {
+      error_log('SRP: Failed to create main menu page');
+
+      // Emergency fallback - add under Tools menu
+      add_management_page(
+        __('Screen Recorder Pro', 'screen-recorder-pro'),
+        __('Screen Recorder Pro', 'screen-recorder-pro'),
+        $capability,
+        'screen-recorder-emergency',
+        [$this, 'render_emergency_page']
+      );
+
+      error_log('SRP: Added emergency page under Tools menu');
+    }
+
+    // Log all current menu items for debugging
+    global $menu;
+    error_log('SRP: Current admin menu items:');
+    foreach ($menu as $item) {
+      if (isset($item[0]) && isset($item[2])) {
+        error_log('  - ' . $item[0] . ' (' . $item[2] . ')');
+      }
     }
   }
 
   /**
-   * Modern dashboard page with simplified device selection
+   * Main dashboard page
    */
   public function render_main_page()
   {
+    if (!current_user_can('read')) {
+      wp_die(__('You do not have sufficient permissions to access this page.'));
+    }
+
     $recordings_manager = new SRP_Recordings_Manager();
-    $recent_recordings = $recordings_manager->get_all(3);
     $total_recordings = $recordings_manager->get_count_by_status('completed');
-    $api_key_set = !empty(srp_get_api_key());
+    $current_usage = $this->get_current_usage();
+    $monthly_limit = $this->get_usage_limit();
+    $is_premium = function_exists('srp_fs') ? srp_fs()->can_use_premium_code() : false;
 
 ?>
     <div class="wrap srp-dashboard">
@@ -67,123 +121,126 @@ class SRP_Admin_UI
             <h1 class="srp-title">
               <span class="dashicons dashicons-video-alt3"></span>
               <?php _e('Screen Recorder Pro', 'screen-recorder-pro'); ?>
-              <span class="srp-version">v0.1</span>
+              <span class="srp-version">v<?php echo SRP_VERSION; ?></span>
             </h1>
-            <p class="srp-subtitle"><?php _e('Create beautiful scrolling videos with optional device frames', 'screen-recorder-pro'); ?></p>
+            <p class="srp-subtitle"><?php _e('Create engaging screen recordings of your WordPress content', 'screen-recorder-pro'); ?></p>
           </div>
           <div class="srp-header-stats">
             <div class="srp-stat-card">
-              <div class="srp-stat-number" id="srp-total-recordings"><?php echo $total_recordings; ?></div>
+              <div class="srp-stat-number"><?php echo $total_recordings; ?></div>
               <div class="srp-stat-label"><?php _e('Total Recordings', 'screen-recorder-pro'); ?></div>
             </div>
             <div class="srp-stat-card">
-              <div class="srp-stat-number"><?php echo srp_is_premium_user() ? 'PRO' : 'FREE'; ?></div>
-              <div class="srp-stat-label"><?php _e('Plan', 'screen-recorder-pro'); ?></div>
+              <div class="srp-stat-number"><?php echo $is_premium ? '∞' : $current_usage . '/' . $monthly_limit; ?></div>
+              <div class="srp-stat-label"><?php _e('This Month', 'screen-recorder-pro'); ?></div>
             </div>
           </div>
         </div>
       </div>
 
-      <?php if (!$api_key_set): ?>
-        <div class="srp-notice srp-notice-error">
-          <div class="srp-notice-icon">
-            <span class="dashicons dashicons-warning"></span>
-          </div>
+      <?php if (!$is_premium && $current_usage >= $monthly_limit * 0.8): ?>
+        <div class="srp-notice">
+          <span class="srp-notice-icon dashicons dashicons-warning"></span>
           <div class="srp-notice-content">
-            <h3><?php _e('Plugin Configuration Required', 'screen-recorder-pro'); ?></h3>
-            <p><?php _e('The plugin requires proper configuration. Please contact support for setup assistance.', 'screen-recorder-pro'); ?></p>
+            <h3><?php _e('Usage Limit Warning', 'screen-recorder-pro'); ?></h3>
+            <p>
+              <?php printf(
+                __('You\'ve used %d out of %d recordings this month. <a href="%s" target="_blank">Upgrade to Pro</a> for unlimited recordings.', 'screen-recorder-pro'),
+                $current_usage,
+                $monthly_limit,
+                function_exists('srp_fs') ? srp_fs()->get_upgrade_url() : '#'
+              ); ?>
+            </p>
           </div>
         </div>
       <?php endif; ?>
 
       <div class="srp-main-content">
         <div class="srp-grid">
-          <!-- Create Recording Card -->
+          <!-- Quick Recording Form -->
           <div class="srp-card srp-card-primary">
             <div class="srp-card-header">
               <h2><?php _e('Create New Recording', 'screen-recorder-pro'); ?></h2>
-              <p><?php _e('Generate smooth scrolling videos with optional device frames', 'screen-recorder-pro'); ?></p>
+              <p><?php _e('Record any URL or WordPress page/post', 'screen-recorder-pro'); ?></p>
             </div>
-
             <div class="srp-card-body">
-              <form id="srp-recording-form" class="srp-form">
+              <form id="srp-quick-record-form" class="srp-form">
+                <?php wp_nonce_field('srp_ajax_nonce', 'srp_nonce'); ?>
+
                 <div class="srp-form-group">
-                  <label for="srp-url" class="srp-label">
+                  <label for="record_url" class="srp-label">
                     <span class="dashicons dashicons-admin-links"></span>
-                    <?php _e('Website URL', 'screen-recorder-pro'); ?>
+                    <?php _e('URL to Record', 'screen-recorder-pro'); ?>
                   </label>
-                  <input type="url" id="srp-url" class="srp-input" placeholder="https://example.com" />
-                  <div class="srp-help-text"><?php _e('Enter the full URL of the page you want to record', 'screen-recorder-pro'); ?></div>
+                  <input type="url" id="record_url" name="url" class="srp-input"
+                    placeholder="https://example.com" required />
                 </div>
 
                 <div class="srp-form-row">
                   <div class="srp-form-group">
-                    <label for="srp-duration" class="srp-label">
-                      <span class="dashicons dashicons-clock"></span>
-                      <?php _e('Duration', 'screen-recorder-pro'); ?>
+                    <label for="record_device" class="srp-label">
+                      <span class="dashicons dashicons-smartphone"></span>
+                      <?php _e('Device/Viewport', 'screen-recorder-pro'); ?>
                     </label>
-                    <select id="srp-duration" class="srp-select">
-                      <option value="3">3 seconds</option>
-                      <option value="5" selected>5 seconds</option>
-                      <option value="8">8 seconds</option>
-                      <option value="10">10 seconds</option>
-                      <option value="15">15 seconds</option>
+                    <select id="record_device" name="device" class="srp-select">
+                      <?php foreach (ScreenRecorderPro::get_device_viewport_options() as $key => $device): ?>
+                        <option value="<?php echo esc_attr($key); ?>">
+                          <?php echo esc_html($device['name']); ?>
+                        </option>
+                      <?php endforeach; ?>
                     </select>
                   </div>
 
                   <div class="srp-form-group">
-                    <label for="srp-device" class="srp-label">
-                      <span class="dashicons dashicons-desktop"></span>
-                      <?php _e('Device & Size', 'screen-recorder-pro'); ?>
+                    <label for="record_duration" class="srp-label">
+                      <span class="dashicons dashicons-clock"></span>
+                      <?php _e('Duration (seconds)', 'screen-recorder-pro'); ?>
                     </label>
-                    <select id="srp-device" class="srp-select">
-                      <?php
-                      $device_options = ScreenRecorderPro::get_device_viewport_options();
-                      foreach ($device_options as $device_key => $device_info): ?>
-                        <option value="<?php echo esc_attr($device_key); ?>"
-                          <?php selected($device_key, 'desktop_1440'); ?>>
-                          <?php echo esc_html($device_info['name']); ?>
-                        </option>
-                      <?php endforeach; ?>
+                    <select id="record_duration" name="duration" class="srp-select">
+                      <option value="5">5 seconds</option>
+                      <option value="10" selected>10 seconds</option>
+                      <option value="15">15 seconds</option>
+                      <option value="20">20 seconds</option>
+                      <option value="30">30 seconds</option>
                     </select>
-                    <div class="srp-help-text"><?php _e('Choose device type and screen size for recording', 'screen-recorder-pro'); ?></div>
                   </div>
                 </div>
 
                 <div class="srp-form-group">
                   <label class="srp-checkbox-label">
-                    <input type="checkbox" id="srp-show-device-frame" checked />
+                    <input type="checkbox" name="show_device_frame" value="1" checked>
                     <span class="srp-checkbox-custom"></span>
                     <span class="srp-label-text">
                       <span class="dashicons dashicons-smartphone"></span>
-                      <?php _e('Show Device Frame', 'screen-recorder-pro'); ?>
-                      <span class="srp-badge srp-badge-new">TOGGLE</span>
+                      <?php _e('Show device frame (when available)', 'screen-recorder-pro'); ?>
                     </span>
                   </label>
-                  <div class="srp-help-text"><?php _e('Display the video inside a realistic device frame, or show just the video', 'screen-recorder-pro'); ?></div>
+                  <div class="srp-help-text">
+                    <?php _e('Display the recording inside a realistic device mockup for better presentation.', 'screen-recorder-pro'); ?>
+                  </div>
                 </div>
 
-                <button type="button" id="srp-create-recording" class="srp-button srp-button-primary srp-button-large" <?php echo !$api_key_set ? 'disabled' : ''; ?>>
-                  <span class="srp-button-icon dashicons dashicons-video-alt3"></span>
+                <button type="submit" class="srp-button srp-button-primary srp-button-large" id="srp-record-btn">
+                  <span class="dashicons dashicons-video-alt3"></span>
                   <?php _e('Create Recording', 'screen-recorder-pro'); ?>
                 </button>
               </form>
 
-              <!-- Status Messages -->
               <div id="srp-recording-status" class="srp-status-message" style="display: none;">
-                <div class="srp-spinner"></div>
-                <span id="srp-status-text"><?php _e('Creating your recording...', 'screen-recorder-pro'); ?></span>
+                <span class="srp-spinner"></span>
+                <span id="srp-status-text"><?php _e('Creating recording...', 'screen-recorder-pro'); ?></span>
               </div>
 
-              <div id="srp-recording-result" class="srp-success-message" style="display: none;">
+              <div id="srp-recording-success" class="srp-success-message" style="display: none;">
                 <div class="srp-success-icon">
-                  <span class="dashicons dashicons-yes-alt"></span>
+                  <span class="dashicons dashicons-yes"></span>
                 </div>
                 <div class="srp-success-content">
                   <h4><?php _e('Recording Created Successfully!', 'screen-recorder-pro'); ?></h4>
+                  <p><?php _e('Your screen recording is ready to use.', 'screen-recorder-pro'); ?></p>
                   <div class="srp-success-actions">
-                    <a href="#" id="srp-view-recording" class="srp-button srp-button-secondary">
-                      <?php _e('View in Media Library', 'screen-recorder-pro'); ?>
+                    <a href="#" id="srp-view-recording" class="srp-button srp-button-primary">
+                      <?php _e('View Recording', 'screen-recorder-pro'); ?>
                     </a>
                     <a href="<?php echo admin_url('admin.php?page=screen-recorder-all'); ?>" class="srp-button srp-button-secondary">
                       <?php _e('View All Recordings', 'screen-recorder-pro'); ?>
@@ -194,150 +251,117 @@ class SRP_Admin_UI
             </div>
           </div>
 
-          <!-- Recent Recordings Card -->
-          <?php if (!empty($recent_recordings)): ?>
-            <div class="srp-card">
-              <div class="srp-card-header">
-                <h2><?php _e('Recent Recordings', 'screen-recorder-pro'); ?></h2>
-                <a href="<?php echo admin_url('admin.php?page=screen-recorder-all'); ?>" class="srp-link">
-                  <?php _e('View all', 'screen-recorder-pro'); ?>
+          <!-- Recent Recordings Sidebar -->
+          <div class="srp-card">
+            <div class="srp-card-header">
+              <h2><?php _e('Recent Recordings', 'screen-recorder-pro'); ?></h2>
+              <a href="<?php echo admin_url('admin.php?page=screen-recorder-all'); ?>" class="srp-link">
+                <?php _e('View All', 'screen-recorder-pro'); ?>
+              </a>
+            </div>
+            <div class="srp-card-body">
+              <?php $this->render_recent_recordings_list(); ?>
+            </div>
+          </div>
+        </div>
+
+        <!-- Usage Stats for Free Users -->
+        <?php if (!$is_premium): ?>
+          <div class="srp-card">
+            <div class="srp-card-header">
+              <h2><?php _e('Usage This Month', 'screen-recorder-pro'); ?></h2>
+            </div>
+            <div class="srp-card-body">
+              <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 24px; font-weight: bold; margin-bottom: 8px;">
+                  <?php echo $current_usage; ?> / <?php echo $monthly_limit; ?>
+                </div>
+                <div style="color: #6c757d; margin-bottom: 16px;">
+                  <?php _e('Recordings Used', 'screen-recorder-pro'); ?>
+                </div>
+                <div style="background: #e9ecef; height: 8px; border-radius: 4px; margin-bottom: 16px;">
+                  <div style="background: #667eea; height: 100%; border-radius: 4px; width: <?php echo min(100, ($current_usage / $monthly_limit) * 100); ?>%;"></div>
+                </div>
+                <a href="<?php echo function_exists('srp_fs') ? srp_fs()->get_upgrade_url() : '#'; ?>" class="srp-button srp-button-primary">
+                  <?php _e('Upgrade for Unlimited Recordings', 'screen-recorder-pro'); ?>
                 </a>
               </div>
-
-              <div class="srp-card-body">
-                <div class="srp-recordings-list">
-                  <?php foreach ($recent_recordings as $recording): ?>
-                    <?php $post = get_post($recording->post_id); ?>
-                    <div class="srp-recording-item">
-                      <div class="srp-recording-info">
-                        <div class="srp-recording-title">
-                          <?php echo $post ? esc_html($post->post_title) : __('External URL', 'screen-recorder-pro'); ?>
-                        </div>
-                        <div class="srp-recording-url"><?php echo esc_html(parse_url($recording->url, PHP_URL_HOST)); ?></div>
-                        <div class="srp-recording-date"><?php echo human_time_diff(strtotime($recording->created_at)); ?> ago</div>
-                      </div>
-                      <div class="srp-recording-actions">
-                        <?php if ($recording->attachment_id): ?>
-                          <a href="<?php echo admin_url('post.php?post=' . $recording->attachment_id . '&action=edit'); ?>"
-                            class="srp-button srp-button-small">
-                            <span class="dashicons dashicons-edit"></span>
-                          </a>
-                        <?php endif; ?>
-                      </div>
-                    </div>
-                  <?php endforeach; ?>
-                </div>
-              </div>
             </div>
-          <?php endif; ?>
-        </div>
+          </div>
+        <?php endif; ?>
       </div>
+    </div>
 
-      <script>
-        jQuery(document).ready(function($) {
-          // Always hide status messages on page load
-          $('#srp-recording-status, #srp-recording-result').hide();
+    <script>
+      jQuery(document).ready(function($) {
+        $('#srp-quick-record-form').on('submit', function(e) {
+          e.preventDefault();
 
-          // Update recording count
-          function updateRecordingCount() {
-            $.post(ajaxurl, {
-              action: 'srp_get_recording_count',
-              nonce: '<?php echo wp_create_nonce('srp_ajax_nonce'); ?>'
-            }, function(response) {
+          const $form = $(this);
+          const $btn = $('#srp-record-btn');
+          const $status = $('#srp-recording-status');
+          const $success = $('#srp-recording-success');
+
+          // Show loading state
+          $btn.prop('disabled', true).addClass('loading');
+          $status.show();
+          $success.hide();
+
+          // Prepare form data
+          const formData = {
+            action: 'srp_create_recording',
+            nonce: $('#srp_nonce').val(),
+            url: $('#record_url').val(),
+            device: $('#record_device').val(),
+            duration: $('#record_duration').val(),
+            show_device_frame: $('#show_device_frame').is(':checked') ? 1 : 0
+          };
+
+          // Make AJAX request
+          $.ajax({
+            url: ajaxurl,
+            type: 'POST',
+            data: formData,
+            success: function(response) {
               if (response.success) {
-                $('#srp-total-recordings').text(response.data.total_recordings);
-              }
-            });
-          }
+                $status.hide();
+                $success.show();
 
-          // Update device frame preview when device changes
-          $('#srp-device').on('change', function() {
-            var selectedDevice = $(this).val();
-            var deviceData = $(this).find('option:selected').text();
-
-            // Show/hide device frame option based on device type
-            if (selectedDevice.startsWith('desktop_')) {
-              $('#srp-show-device-frame').prop('checked', false).closest('.srp-form-group').hide();
-            } else {
-              $('#srp-show-device-frame').closest('.srp-form-group').show();
-            }
-
-            // Update help text
-            var helpText = 'Recording will be ' + deviceData.split(' - ')[1] || deviceData;
-            $(this).siblings('.srp-help-text').text(helpText);
-          });
-
-          // Trigger device change on page load
-          $('#srp-device').trigger('change');
-
-          $('#srp-create-recording').on('click', function() {
-            var $button = $(this);
-            var url = $('#srp-url').val().trim();
-            var duration = $('#srp-duration').val();
-            var device = $('#srp-device').val();
-            var showDeviceFrame = $('#srp-show-device-frame').is(':checked');
-
-            if (!url) {
-              alert('<?php _e('Please enter a valid URL', 'screen-recorder-pro'); ?>');
-              return;
-            }
-
-            // Reset and show status
-            $('#srp-recording-result').hide();
-            $('#srp-recording-status').show();
-            $button.prop('disabled', true).addClass('loading');
-
-            $.post(ajaxurl, {
-                action: 'srp_create_recording',
-                nonce: '<?php echo wp_create_nonce('srp_ajax_nonce'); ?>',
-                post_id: 1,
-                url: url,
-                duration: duration,
-                device: device,
-                show_device_frame: showDeviceFrame,
-                format: 'mp4',
-                scenario: 'scroll'
-              })
-              .done(function(response) {
-                $('#srp-recording-status').hide();
-
-                if (response.success) {
-                  $('#srp-view-recording').attr('href', '<?php echo admin_url('post.php?post='); ?>' + response.data.attachment_id + '&action=edit');
-                  $('#srp-recording-result').show();
-
-                  // Update recording count
-                  updateRecordingCount();
-
-                  // Clear form
-                  $('#srp-url').val('');
-
-                  // Auto-hide after 10 seconds
-                  setTimeout(function() {
-                    $('#srp-recording-result').fadeOut();
-                  }, 10000);
-                } else {
-                  alert('Error: ' + (response.data.message || 'Unknown error occurred'));
+                // Update view recording link
+                if (response.data.video_url) {
+                  $('#srp-view-recording').attr('href', response.data.video_url);
                 }
-              })
-              .fail(function() {
-                $('#srp-recording-status').hide();
-                alert('Network error occurred. Please try again.');
-              })
-              .always(function() {
-                $button.prop('disabled', false).removeClass('loading');
-              });
+
+                // Reset form
+                $form[0].reset();
+              } else {
+                alert(response.data.message || 'An error occurred');
+                $status.hide();
+              }
+            },
+            error: function() {
+              alert('Network error occurred');
+              $status.hide();
+            },
+            complete: function() {
+              $btn.prop('disabled', false).removeClass('loading');
+            }
           });
         });
-      </script>
-    </div>
+      });
+    </script>
   <?php
   }
 
   /**
-   * All Recordings page with simplified interface
+   * All Recordings page
    */
   public function render_recordings_page()
   {
+    if (!current_user_can('read')) {
+      wp_die(__('You do not have sufficient permissions to access this page.'));
+    }
+
     $recordings_manager = new SRP_Recordings_Manager();
     $recordings = $recordings_manager->get_all();
 
@@ -374,121 +398,83 @@ class SRP_Admin_UI
       <?php else: ?>
         <div class="srp-recordings-grid">
           <?php foreach ($recordings as $recording): ?>
-            <?php
-            $post = get_post($recording->post_id);
-            $post_title = $post ? $post->post_title : parse_url($recording->url, PHP_URL_HOST);
-            $video_url = $recording->attachment_id ? wp_get_attachment_url($recording->attachment_id) : '';
-            $options = maybe_unserialize($recording->options);
-
-            // Create shortcodes
-            $basic_shortcode = "[screen_recording id=\"{$recording->id}\"]";
-            $with_frame_shortcode = "[screen_recording id=\"{$recording->id}\" device_frame=\"true\"]";
-            $without_frame_shortcode = "[screen_recording id=\"{$recording->id}\" device_frame=\"false\"]";
-
-            // Get device info
-            $device_info = '';
-            if ($options && isset($options['device_key'])) {
-              $device_options = ScreenRecorderPro::get_device_viewport_options();
-              $device_config = $device_options[$options['device_key']] ?? null;
-              if ($device_config) {
-                $device_info = $device_config['name'];
-              }
-            }
-            ?>
             <div class="srp-recording-card">
               <div class="srp-recording-preview">
-                <?php if ($video_url && $recording->status === 'completed'): ?>
-                  <video class="srp-preview-video" muted>
-                    <source src="<?php echo esc_attr($video_url); ?>" type="video/mp4">
+                <?php if ($recording->attachment_id): ?>
+                  <video class="srp-preview-video" poster="">
+                    <source src="<?php echo wp_get_attachment_url($recording->attachment_id); ?>" type="video/mp4">
                   </video>
                   <div class="srp-preview-overlay">
-                    <button type="button" class="srp-preview-btn"
-                      data-video-url="<?php echo esc_attr($video_url); ?>"
-                      data-title="<?php echo esc_attr($post_title); ?>">
+                    <button class="srp-preview-btn" onclick="srpPlayVideo('<?php echo wp_get_attachment_url($recording->attachment_id); ?>', '<?php echo esc_js($recording->url); ?>')">
                       <span class="dashicons dashicons-controls-play"></span>
                     </button>
                   </div>
                 <?php else: ?>
                   <div class="srp-preview-placeholder">
-                    <span class="dashicons dashicons-video-alt3"></span>
+                    <span class="dashicons dashicons-format-video"></span>
                   </div>
                 <?php endif; ?>
               </div>
 
               <div class="srp-recording-content">
-                <h3 class="srp-recording-title"><?php echo esc_html($post_title); ?></h3>
-                <div class="srp-recording-url"><?php echo esc_html(parse_url($recording->url, PHP_URL_HOST)); ?></div>
-
-                <?php if ($device_info): ?>
-                  <div class="srp-recording-device"><?php echo esc_html($device_info); ?></div>
-                <?php endif; ?>
+                <h3 class="srp-recording-title">
+                  <?php echo esc_html($recording->url); ?>
+                </h3>
 
                 <div class="srp-recording-meta">
                   <span class="srp-status srp-status-<?php echo esc_attr($recording->status); ?>">
                     <?php echo esc_html(ucfirst($recording->status)); ?>
                   </span>
-                  <span class="srp-date"><?php echo human_time_diff(strtotime($recording->created_at)); ?> ago</span>
-
-                  <?php if ($options && isset($options['show_device_frame'])): ?>
-                    <span class="srp-frame-indicator">
-                      <?php if ($options['show_device_frame']): ?>
-                        <span class="dashicons dashicons-smartphone" title="With Device Frame"></span>
-                      <?php else: ?>
-                        <span class="dashicons dashicons-format-video" title="Video Only"></span>
-                      <?php endif; ?>
-                    </span>
-                  <?php endif; ?>
+                  <span class="srp-recording-date">
+                    <?php echo human_time_diff(strtotime($recording->created_at), current_time('timestamp')) . ' ago'; ?>
+                  </span>
                 </div>
 
-                <div class="srp-shortcode-section">
-                  <label class="srp-shortcode-label"><?php _e('Default Shortcode', 'screen-recorder-pro'); ?></label>
-                  <div class="srp-shortcode-input-group">
-                    <input type="text" class="srp-shortcode-input"
-                      value="<?php echo esc_attr($basic_shortcode); ?>"
-                      readonly onclick="this.select()">
-                    <button type="button" class="srp-copy-btn"
-                      data-shortcode="<?php echo esc_attr($basic_shortcode); ?>">
-                      <span class="dashicons dashicons-admin-page"></span>
-                    </button>
+                <?php if ($recording->options): ?>
+                  <div class="srp-recording-device">
+                    <?php
+                    $options = json_decode($recording->options, true);
+                    $device_key = $options['device_key'] ?? 'unknown';
+                    $device_options = ScreenRecorderPro::get_device_viewport_options();
+                    $device_name = $device_options[$device_key]['name'] ?? 'Unknown Device';
+                    echo esc_html($device_name);
+
+                    if (!empty($options['show_device_frame'])): ?>
+                      <span class="srp-frame-indicator" title="Device frame enabled">
+                        <span class="dashicons dashicons-smartphone"></span>
+                      </span>
+                    <?php endif; ?>
                   </div>
-                </div>
+                <?php endif; ?>
 
-                <div class="srp-shortcode-section">
-                  <label class="srp-shortcode-label"><?php _e('With Device Frame', 'screen-recorder-pro'); ?></label>
-                  <div class="srp-shortcode-input-group">
-                    <input type="text" class="srp-shortcode-input"
-                      value="<?php echo esc_attr($with_frame_shortcode); ?>"
-                      readonly onclick="this.select()">
-                    <button type="button" class="srp-copy-btn"
-                      data-shortcode="<?php echo esc_attr($with_frame_shortcode); ?>">
-                      <span class="dashicons dashicons-admin-page"></span>
-                    </button>
+                <?php if ($recording->attachment_id): ?>
+                  <div class="srp-shortcode-section">
+                    <div class="srp-shortcode-label">
+                      <span class="dashicons dashicons-shortcode"></span>
+                      <?php _e('Shortcode', 'screen-recorder-pro'); ?>
+                    </div>
+                    <div class="srp-shortcode-input-group">
+                      <input type="text" class="srp-shortcode-input" readonly
+                        value='[screen_recording id="<?php echo $recording->attachment_id; ?>"]'>
+                      <button class="srp-copy-btn" onclick="srpCopyShortcode(this)" title="Copy shortcode">
+                        <span class="dashicons dashicons-admin-page"></span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-
-                <div class="srp-shortcode-section">
-                  <label class="srp-shortcode-label"><?php _e('Video Only', 'screen-recorder-pro'); ?></label>
-                  <div class="srp-shortcode-input-group">
-                    <input type="text" class="srp-shortcode-input"
-                      value="<?php echo esc_attr($without_frame_shortcode); ?>"
-                      readonly onclick="this.select()">
-                    <button type="button" class="srp-copy-btn"
-                      data-shortcode="<?php echo esc_attr($without_frame_shortcode); ?>">
-                      <span class="dashicons dashicons-admin-page"></span>
-                    </button>
-                  </div>
-                </div>
+                <?php endif; ?>
 
                 <div class="srp-recording-actions">
                   <?php if ($recording->attachment_id): ?>
-                    <a href="<?php echo admin_url('post.php?post=' . $recording->attachment_id . '&action=edit'); ?>"
-                      class="srp-button srp-button-secondary srp-button-small">
-                      <?php _e('Edit', 'screen-recorder-pro'); ?>
+                    <a href="<?php echo wp_get_attachment_url($recording->attachment_id); ?>"
+                      class="srp-button srp-button-secondary srp-button-small" target="_blank">
+                      <span class="dashicons dashicons-download"></span>
+                      <?php _e('Download', 'screen-recorder-pro'); ?>
                     </a>
                   <?php endif; ?>
 
-                  <button type="button" class="srp-button srp-button-danger srp-button-small delete-recording"
-                    data-recording-id="<?php echo esc_attr($recording->id); ?>">
+                  <button class="srp-button srp-button-danger srp-button-small"
+                    onclick="srpDeleteRecording(<?php echo $recording->id; ?>)">
+                    <span class="dashicons dashicons-trash"></span>
                     <?php _e('Delete', 'screen-recorder-pro'); ?>
                   </button>
                 </div>
@@ -497,123 +483,259 @@ class SRP_Admin_UI
           <?php endforeach; ?>
         </div>
       <?php endif; ?>
+    </div>
 
-      <!-- Modern Preview Modal -->
-      <div id="srp-preview-modal" class="srp-modal" style="display: none;">
-        <div class="srp-modal-backdrop"></div>
-        <div class="srp-modal-container">
-          <div class="srp-modal-header">
-            <h3 id="srp-modal-title"><?php _e('Recording Preview', 'screen-recorder-pro'); ?></h3>
-            <button type="button" class="srp-modal-close">
-              <span class="dashicons dashicons-no-alt"></span>
-            </button>
-          </div>
-          <div class="srp-modal-body">
-            <video id="srp-modal-video" controls>
-              <?php _e('Your browser does not support the video tag.', 'screen-recorder-pro'); ?>
-            </video>
-          </div>
+    <!-- Video Modal -->
+    <div id="srp-video-modal" class="srp-modal" style="display: none;">
+      <div class="srp-modal-backdrop" onclick="srpCloseModal()"></div>
+      <div class="srp-modal-container">
+        <div class="srp-modal-header">
+          <h3 id="srp-modal-title"><?php _e('Screen Recording', 'screen-recorder-pro'); ?></h3>
+          <button class="srp-modal-close" onclick="srpCloseModal()">
+            <span class="dashicons dashicons-no-alt"></span>
+          </button>
+        </div>
+        <div class="srp-modal-body">
+          <video id="srp-modal-video" controls style="width: 100%; max-height: 500px;">
+            <source src="" type="video/mp4">
+          </video>
         </div>
       </div>
+    </div>
 
-      <script>
-        jQuery(document).ready(function($) {
-          // Update recording count on page load
-          function updateRecordingCount() {
-            $.post(ajaxurl, {
-              action: 'srp_get_recording_count',
-              nonce: '<?php echo wp_create_nonce('srp_ajax_nonce'); ?>'
-            }, function(response) {
-              if (response.success) {
-                $('#srp-total-recordings').text(response.data.total_recordings);
-              }
-            });
+    <script>
+      function srpPlayVideo(videoUrl, title) {
+        const modal = document.getElementById('srp-video-modal');
+        const video = document.getElementById('srp-modal-video');
+        const titleEl = document.getElementById('srp-modal-title');
+
+        video.src = videoUrl;
+        titleEl.textContent = title;
+        modal.style.display = 'flex';
+
+        video.play();
+      }
+
+      function srpCloseModal() {
+        const modal = document.getElementById('srp-video-modal');
+        const video = document.getElementById('srp-modal-video');
+
+        video.pause();
+        video.src = '';
+        modal.style.display = 'none';
+      }
+
+      function srpCopyShortcode(btn) {
+        const input = btn.previousElementSibling;
+        input.select();
+        document.execCommand('copy');
+
+        const icon = btn.querySelector('.dashicons');
+        const originalClass = icon.className;
+
+        icon.className = 'dashicons dashicons-yes';
+        btn.classList.add('copied');
+
+        setTimeout(() => {
+          icon.className = originalClass;
+          btn.classList.remove('copied');
+        }, 2000);
+      }
+
+      function srpDeleteRecording(recordingId) {
+        if (!confirm('Are you sure you want to delete this recording?')) {
+          return;
+        }
+
+        jQuery.ajax({
+          url: ajaxurl,
+          type: 'POST',
+          data: {
+            action: 'srp_delete_recording',
+            recording_id: recordingId,
+            nonce: '<?php echo wp_create_nonce('srp_ajax_nonce'); ?>'
+          },
+          success: function(response) {
+            if (response.success) {
+              location.reload();
+            } else {
+              alert(response.data.message || 'Failed to delete recording');
+            }
+          },
+          error: function() {
+            alert('Network error occurred');
           }
-
-          // Preview functionality
-          $('.srp-preview-btn').on('click', function() {
-            var videoUrl = $(this).data('video-url');
-            var title = $(this).data('title');
-
-            $('#srp-modal-title').text(title);
-            $('#srp-modal-video').attr('src', videoUrl);
-            $('#srp-preview-modal').show();
-          });
-
-          // Close modal
-          $('.srp-modal-close, .srp-modal-backdrop').on('click', function() {
-            $('#srp-preview-modal').hide();
-            $('#srp-modal-video')[0].pause();
-          });
-
-          // Copy shortcode
-          $('.srp-copy-btn').on('click', function() {
-            var shortcode = $(this).data('shortcode');
-            var input = $(this).siblings('.srp-shortcode-input')[0];
-
-            input.select();
-            input.setSelectionRange(0, 99999);
-
-            try {
-              document.execCommand('copy');
-              $(this).addClass('copied');
-              setTimeout(() => {
-                $(this).removeClass('copied');
-              }, 2000);
-            } catch (err) {
-              alert('Shortcode: ' + shortcode);
-            }
-          });
-
-          // Delete recording
-          $('.delete-recording').on('click', function() {
-            if (!confirm('<?php echo esc_js(__('Are you sure you want to delete this recording?', 'screen-recorder-pro')); ?>')) {
-              return;
-            }
-
-            var recordingId = $(this).data('recording-id');
-            var $card = $(this).closest('.srp-recording-card');
-
-            $.post(ajaxurl, {
-              action: 'srp_delete_recording',
-              recording_id: recordingId,
-              nonce: '<?php echo wp_create_nonce('srp_ajax_nonce'); ?>'
-            }, function(response) {
-              if (response.success) {
-                $card.fadeOut(300, function() {
-                  $(this).remove();
-                  updateRecordingCount();
-                });
-              } else {
-                alert('Error: ' + response.data.message);
-              }
-            });
-          });
-
-          // Video hover effects
-          $('.srp-preview-video').on('mouseenter', function() {
-            this.play();
-          }).on('mouseleave', function() {
-            this.pause();
-            this.currentTime = 0;
-          });
         });
-      </script>
+      }
+    </script>
+  <?php
+  }
+
+  /**
+   * Debug page to help troubleshoot issues
+   */
+  public function render_debug_page()
+  {
+    if (!current_user_can('manage_options') && !is_super_admin()) {
+      wp_die(__('You do not have sufficient permissions to access this page.'));
+    }
+
+    $current_user = wp_get_current_user();
+  ?>
+    <div class="wrap">
+      <h1>🛠️ Screen Recorder Pro - Debug Information</h1>
+
+      <div style="background: #f9f9f9; padding: 20px; margin: 20px 0;">
+        <h2>Plugin Status</h2>
+        <table class="widefat">
+          <tr>
+            <td><strong>Plugin Version:</strong></td>
+            <td><?php echo SRP_VERSION; ?></td>
+          </tr>
+          <tr>
+            <td><strong>WordPress Version:</strong></td>
+            <td><?php echo get_bloginfo('version'); ?></td>
+          </tr>
+          <tr>
+            <td><strong>PHP Version:</strong></td>
+            <td><?php echo PHP_VERSION; ?></td>
+          </tr>
+          <tr>
+            <td><strong>Plugin Active:</strong></td>
+            <td><?php echo is_plugin_active(SRP_PLUGIN_BASENAME) ? '✅ YES' : '❌ NO'; ?></td>
+          </tr>
+          <tr>
+            <td><strong>Freemius Loaded:</strong></td>
+            <td><?php echo function_exists('srp_fs') ? '✅ YES' : '❌ NO'; ?></td>
+          </tr>
+          <?php if (function_exists('srp_fs')): ?>
+            <tr>
+              <td><strong>Freemius Connected:</strong></td>
+              <td><?php echo srp_fs()->is_registered() ? '✅ YES' : '❌ NO'; ?></td>
+            </tr>
+            <tr>
+              <td><strong>Premium User:</strong></td>
+              <td><?php echo srp_fs()->can_use_premium_code() ? '✅ YES' : '❌ NO'; ?></td>
+            </tr>
+          <?php endif; ?>
+        </table>
+      </div>
+
+      <div style="background: #f9f9f9; padding: 20px; margin: 20px 0;">
+        <h2>User Information</h2>
+        <table class="widefat">
+          <tr>
+            <td><strong>User ID:</strong></td>
+            <td><?php echo $current_user->ID; ?></td>
+          </tr>
+          <tr>
+            <td><strong>Username:</strong></td>
+            <td><?php echo $current_user->user_login; ?></td>
+          </tr>
+          <tr>
+            <td><strong>User Roles:</strong></td>
+            <td><?php echo implode(', ', $current_user->roles); ?></td>
+          </tr>
+          <tr>
+            <td><strong>Is Super Admin:</strong></td>
+            <td><?php echo is_super_admin() ? '✅ YES' : '❌ NO'; ?></td>
+          </tr>
+          <tr>
+            <td><strong>Can manage_options:</strong></td>
+            <td><?php echo current_user_can('manage_options') ? '✅ YES' : '❌ NO'; ?></td>
+          </tr>
+          <tr>
+            <td><strong>Can edit_posts:</strong></td>
+            <td><?php echo current_user_can('edit_posts') ? '✅ YES' : '❌ NO'; ?></td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="background: #f9f9f9; padding: 20px; margin: 20px 0;">
+        <h2>Menu Debug</h2>
+        <?php
+        global $menu, $submenu;
+        echo '<p><strong>Total WordPress Menus:</strong> ' . count($menu) . '</p>';
+
+        echo '<h3>Screen Recorder Menus Found:</h3>';
+        $srp_menus = array_filter($menu, function ($item) {
+          return isset($item[2]) && strpos($item[2], 'screen-recorder') !== false;
+        });
+
+        if (empty($srp_menus)) {
+          echo '<p>❌ No Screen Recorder menus found in main menu</p>';
+        } else {
+          echo '<ul>';
+          foreach ($srp_menus as $menu_item) {
+            echo '<li>✅ ' . $menu_item[0] . ' (' . $menu_item[2] . ')</li>';
+          }
+          echo '</ul>';
+        }
+
+        if (isset($submenu['screen-recorder'])) {
+          echo '<h3>Screen Recorder Submenus:</h3>';
+          echo '<ul>';
+          foreach ($submenu['screen-recorder'] as $submenu_item) {
+            echo '<li>' . $submenu_item[0] . ' (' . $submenu_item[2] . ')</li>';
+          }
+          echo '</ul>';
+        }
+        ?>
+      </div>
+
+      <div style="background: #d4edda; padding: 20px; margin: 20px 0;">
+        <h2>🔗 Direct Access Links</h2>
+        <ul>
+          <li><a href="<?php echo admin_url('admin.php?page=screen-recorder'); ?>">Main Dashboard</a></li>
+          <li><a href="<?php echo admin_url('admin.php?page=screen-recorder-all'); ?>">All Recordings</a></li>
+          <li><a href="<?php echo admin_url('plugins.php'); ?>">Plugins Page</a></li>
+        </ul>
+      </div>
     </div>
   <?php
   }
 
   /**
-   * Premium Settings page (only visible to premium users)
+   * Emergency page under Tools menu
+   */
+  public function render_emergency_page()
+  {
+  ?>
+    <div class="wrap">
+      <h1>🚨 Screen Recorder Pro - Emergency Access</h1>
+      <div class="notice notice-warning">
+        <p><strong>Emergency Mode:</strong> The main plugin menu was not accessible, so this emergency page was created under the Tools menu.</p>
+      </div>
+
+      <p>Try these direct links to access your plugin:</p>
+      <ul>
+        <li><a href="<?php echo admin_url('admin.php?page=screen-recorder'); ?>">Main Dashboard</a></li>
+        <li><a href="<?php echo admin_url('admin.php?page=screen-recorder-all'); ?>">All Recordings</a></li>
+        <li><a href="<?php echo admin_url('admin.php?page=screen-recorder-debug'); ?>">Debug Information</a></li>
+      </ul>
+    </div>
+  <?php
+  }
+
+  /**
+   * Premium Settings page
    */
   public function render_premium_settings_page()
   {
-    if (!srp_is_premium_user()) {
+    if (!function_exists('srp_fs') || !srp_fs()->can_use_premium_code()) {
       wp_die('Access denied');
     }
 
-    $user_settings = get_option('srp_user_settings', []);
+    // Handle form submission
+    if (isset($_POST['srp_premium_nonce']) && wp_verify_nonce($_POST['srp_premium_nonce'], 'srp_save_premium_settings')) {
+      $user_settings = [
+        'premium_api_key' => sanitize_text_field($_POST['srp_user_settings']['premium_api_key'] ?? '')
+      ];
+      update_option('srp_user_settings', $user_settings);
+      echo '<div class="notice notice-success"><p>Settings saved successfully!</p></div>';
+    }
 
+    $user_settings = get_option('srp_user_settings', []);
   ?>
     <div class="wrap srp-dashboard">
       <?php $this->render_modern_styles(); ?>
@@ -637,8 +759,7 @@ class SRP_Admin_UI
           </div>
 
           <div class="srp-card-body">
-            <form method="post" action="<?php echo admin_url('admin-post.php'); ?>" class="srp-form">
-              <input type="hidden" name="action" value="srp_save_premium_settings">
+            <form method="post" class="srp-form">
               <?php wp_nonce_field('srp_save_premium_settings', 'srp_premium_nonce'); ?>
 
               <div class="srp-form-group">
@@ -669,13 +790,78 @@ class SRP_Admin_UI
   }
 
   /**
-   * Render modern CSS styles with v0.1 enhancements
+   * Helper method to get current usage
+   */
+  private function get_current_usage()
+  {
+    if (class_exists('SRP_Recordings_Manager')) {
+      $recordings_manager = new SRP_Recordings_Manager();
+      $current_month = date('Y-m');
+      return $recordings_manager->get_monthly_count($current_month);
+    }
+    return 0;
+  }
+
+  /**
+   * Helper method to get usage limit
+   */
+  private function get_usage_limit()
+  {
+    if (function_exists('srp_fs') && srp_fs()->can_use_premium_code()) {
+      return 999999; // Unlimited for pro users
+    }
+    return 10; // Free plan limit
+  }
+
+  /**
+   * Render recent recordings list
+   */
+  private function render_recent_recordings_list()
+  {
+    if (class_exists('SRP_Recordings_Manager')) {
+      $recordings_manager = new SRP_Recordings_Manager();
+      $recent_recordings = $recordings_manager->get_recent(5);
+
+      if (empty($recent_recordings)) {
+        echo '<p style="color: #6c757d; text-align: center; padding: 20px;">';
+        echo __('No recordings yet', 'screen-recorder-pro');
+        echo '</p>';
+        return;
+      }
+
+      echo '<div class="srp-recordings-list">';
+      foreach ($recent_recordings as $recording) {
+        echo '<div class="srp-recording-item">';
+        echo '<div>';
+        echo '<div class="srp-recording-title">' . esc_html(wp_trim_words($recording->url, 5)) . '</div>';
+        echo '<div class="srp-recording-date">' . human_time_diff(strtotime($recording->created_at), current_time('timestamp')) . ' ago</div>';
+        if ($recording->options) {
+          $options = json_decode($recording->options, true);
+          $device_key = $options['device_key'] ?? 'unknown';
+          $device_options = ScreenRecorderPro::get_device_viewport_options();
+          $device_name = $device_options[$device_key]['name'] ?? 'Unknown Device';
+          echo '<div class="srp-recording-device">' . esc_html($device_name) . '</div>';
+        }
+        echo '</div>';
+        if ($recording->attachment_id) {
+          echo '<a href="' . wp_get_attachment_url($recording->attachment_id) . '" class="srp-link" target="_blank">';
+          echo '<span class="dashicons dashicons-external"></span>';
+          echo '</a>';
+        }
+        echo '</div>';
+      }
+      echo '</div>';
+    }
+  }
+
+  /**
+   * Render modern CSS styles
    */
   private function render_modern_styles()
   {
   ?>
     <style>
-      /* Modern Dashboard Styles v0.1 */
+      /* Modern Dashboard Styles */
       .srp-dashboard {
         background: #f0f0f1;
         margin: 0 0 0 -20px;
@@ -696,6 +882,11 @@ class SRP_Admin_UI
         display: flex;
         justify-content: space-between;
         align-items: center;
+      }
+
+      .srp-header-actions {
+        display: flex;
+        gap: 12px;
       }
 
       .srp-title {
@@ -957,10 +1148,6 @@ class SRP_Admin_UI
         opacity: 0.8;
       }
 
-      .srp-button-icon {
-        font-size: 16px;
-      }
-
       .srp-badge {
         display: inline-flex;
         align-items: center;
@@ -970,11 +1157,6 @@ class SRP_Admin_UI
         font-weight: 600;
         text-transform: uppercase;
         margin-left: 8px;
-      }
-
-      .srp-badge-new {
-        background: #e8f5e8;
-        color: #2e7d32;
       }
 
       .srp-badge-pro {
@@ -1058,17 +1240,9 @@ class SRP_Admin_UI
         border-left: 4px solid #ff9800;
       }
 
-      .srp-notice-error {
-        border-left-color: #f44336;
-      }
-
       .srp-notice-icon {
         color: #ff9800;
         font-size: 24px;
-      }
-
-      .srp-notice-error .srp-notice-icon {
-        color: #f44336;
       }
 
       .srp-notice-content h3 {
@@ -1128,12 +1302,6 @@ class SRP_Admin_UI
         margin-bottom: 4px;
       }
 
-      .srp-recording-url {
-        font-size: 12px;
-        color: #757575;
-        margin-bottom: 4px;
-      }
-
       .srp-recording-date {
         font-size: 12px;
         color: #6c757d;
@@ -1144,15 +1312,6 @@ class SRP_Admin_UI
         color: #667eea;
         font-weight: 500;
         margin: 4px 0;
-      }
-
-      .srp-frame-indicator {
-        margin-left: 8px;
-      }
-
-      .srp-frame-indicator .dashicons {
-        font-size: 14px;
-        color: #667eea;
       }
 
       .srp-link {
@@ -1252,13 +1411,6 @@ class SRP_Admin_UI
 
       .srp-recording-content {
         padding: 20px;
-      }
-
-      .srp-recording-title {
-        font-size: 16px;
-        font-weight: 600;
-        color: #1e1e1e;
-        margin: 0 0 4px 0;
       }
 
       .srp-recording-meta {
@@ -1410,12 +1562,6 @@ class SRP_Admin_UI
 
       .srp-modal-body {
         padding: 20px;
-      }
-
-      #srp-modal-video {
-        width: 100%;
-        max-height: 500px;
-        border-radius: 8px;
       }
 
       /* Empty State */

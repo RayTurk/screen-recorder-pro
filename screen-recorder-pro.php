@@ -15,70 +15,133 @@ if (!defined('ABSPATH')) {
   exit;
 }
 
-// Define plugin constants
+// Define plugin constants first
 define('SRP_VERSION', '1.0.0');
 define('SRP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SRP_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('SRP_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
-// Load plugin classes
-$includes = [
-  'includes/config-secure.php',
-  'includes/class-screenshotone-api.php',
-  'includes/class-recordings-manager.php',
-  'includes/class-admin-ui.php',
-  'includes/class-shortcode-handler.php',
-  'includes/class-device-mockups.php'
-];
+// Load all classes immediately - don't wait for Freemius
+function srp_load_classes()
+{
+  static $classes_loaded = false;
 
-foreach ($includes as $include) {
-  $path = SRP_PLUGIN_DIR . $include;
-  if (file_exists($path)) {
-    include_once $path;
+  if ($classes_loaded) {
+    return;
+  }
+
+  error_log('SRP: Loading classes...');
+
+  $files_to_load = [
+    'includes/config-secure.php',
+    'includes/class-recordings-manager.php',
+    'includes/class-screenshotone-api.php',
+    'includes/class-admin-ui.php',
+    'includes/class-shortcode-handler.php',
+    'includes/class-device-mockups.php'
+  ];
+
+  foreach ($files_to_load as $file) {
+    $file_path = SRP_PLUGIN_DIR . $file;
+    if (file_exists($file_path)) {
+      require_once $file_path;
+      error_log("SRP: ✅ Loaded $file");
+    } else {
+      error_log("SRP: ❌ Missing $file");
+    }
+  }
+
+  $classes_loaded = true;
+
+  // Verify classes loaded
+  $required_classes = ['SRP_Admin_UI', 'SRP_Recordings_Manager', 'ScreenRecorderPro'];
+  foreach ($required_classes as $class) {
+    if (class_exists($class)) {
+      error_log("SRP: ✅ Class $class available");
+    } else {
+      error_log("SRP: ❌ Class $class missing");
+    }
   }
 }
 
-// Initialize Freemius (optional)
+// Load classes immediately
+srp_load_classes();
+
+// Initialize Freemius after classes are loaded
 if (!function_exists('srp_fs')) {
   function srp_fs()
   {
     global $srp_fs;
+
     if (!isset($srp_fs)) {
-      $freemius_file = SRP_PLUGIN_DIR . 'freemius/start.php';
-      if (file_exists($freemius_file)) {
-        require_once $freemius_file;
+      // Include Freemius SDK
+      $freemius_path = dirname(__FILE__) . '/vendor/freemius/start.php';
+      if (file_exists($freemius_path)) {
+        require_once $freemius_path;
+
         $srp_fs = fs_dynamic_init([
-          'id' => 'YOUR_FREEMIUS_ID',
-          'slug' => 'screen-recorder-pro',
-          'type' => 'plugin',
-          'public_key' => 'YOUR_PUBLIC_KEY',
-          'is_premium' => true,
-          'has_addons' => false,
-          'has_paid_plans' => true,
-          'menu' => [
-            'slug' => 'screen-recorder',
-            'parent' => ['slug' => 'tools.php'],
+          'id'                  => '19322',
+          'slug'                => 'screen-recorder-pro',
+          'type'                => 'plugin',
+          'public_key'          => 'pk_62c45b5eac4006690c52646deee33',
+          'is_premium'          => false,
+          'premium_suffix'      => 'Pro',
+          'has_premium_version' => true,
+          'has_addons'          => false,
+          'has_paid_plans'      => true,
+          'navigation'          => 'menu',
+          'menu'                => [
+            'slug'       => 'screen-recorder',
+            'first-path' => 'admin.php?page=screen-recorder',
+            'support'    => false,
           ],
+          'anonymous_mode'      => false,
+          'is_live'             => true,
         ]);
+
+        error_log('SRP: ✅ Freemius initialized');
       } else {
-        // Mock object for testing
-        class SRP_Freemius_Mock
-        {
-          public function is_plan($plan)
-          {
-            return false;
-          }
-          public function get_upgrade_url()
-          {
-            return admin_url('admin.php?page=screen-recorder-settings');
-          }
-        }
-        $srp_fs = new SRP_Freemius_Mock();
+        error_log('SRP: ❌ Freemius SDK not found');
       }
     }
+
     return $srp_fs;
   }
+
+  // Init Freemius
+  srp_fs();
+  do_action('srp_fs_loaded');
 }
+
+// Initialize plugin immediately
+function srp_init_plugin()
+{
+  static $plugin_initialized = false;
+
+  if ($plugin_initialized) {
+    return;
+  }
+
+  error_log('SRP: Initializing plugin...');
+
+  // Ensure classes are loaded
+  srp_load_classes();
+
+  // Initialize main plugin class
+  if (class_exists('ScreenRecorderPro')) {
+    ScreenRecorderPro::get_instance();
+    error_log('SRP: ✅ ScreenRecorderPro initialized');
+  } else {
+    error_log('SRP: ❌ ScreenRecorderPro class not found');
+  }
+
+  $plugin_initialized = true;
+}
+
+// Initialize on multiple hooks to ensure it runs
+add_action('plugins_loaded', 'srp_init_plugin', 1);
+add_action('init', 'srp_init_plugin', 1);
+add_action('admin_init', 'srp_init_plugin', 1);
 
 // Main plugin class
 class ScreenRecorderPro
@@ -105,10 +168,25 @@ class ScreenRecorderPro
 
   private function init()
   {
-    $this->api = new SRP_ScreenshotOne_API();
-    $this->recordings_manager = new SRP_Recordings_Manager();
-    $this->admin_ui = new SRP_Admin_UI();
-    $this->shortcode_handler = new SRP_Shortcode_Handler();
+    // Initialize components if classes exist
+    if (class_exists('SRP_ScreenshotOne_API')) {
+      $this->api = new SRP_ScreenshotOne_API();
+    }
+
+    if (class_exists('SRP_Recordings_Manager')) {
+      $this->recordings_manager = new SRP_Recordings_Manager();
+    }
+
+    if (class_exists('SRP_Admin_UI')) {
+      $this->admin_ui = new SRP_Admin_UI();
+      error_log('SRP: ✅ Admin UI component initialized');
+    } else {
+      error_log('SRP: ❌ Admin UI component failed to initialize');
+    }
+
+    if (class_exists('SRP_Shortcode_Handler')) {
+      $this->shortcode_handler = new SRP_Shortcode_Handler();
+    }
   }
 
   private function hooks()
@@ -117,8 +195,14 @@ class ScreenRecorderPro
     register_activation_hook(__FILE__, [$this, 'activate']);
     register_deactivation_hook(__FILE__, [$this, 'deactivate']);
 
-    // Admin hooks
-    add_action('admin_menu', [$this->admin_ui, 'add_menu_pages']);
+    // Admin menu - add with high priority
+    if ($this->admin_ui) {
+      add_action('admin_menu', [$this->admin_ui, 'add_menu_pages'], 5);
+      error_log('SRP: ✅ Admin menu hook added');
+    } else {
+      error_log('SRP: ❌ Admin menu hook not added - no admin_ui');
+    }
+
     add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
 
     // AJAX handlers
@@ -128,7 +212,9 @@ class ScreenRecorderPro
     add_action('wp_ajax_srp_get_recording_count', [$this, 'ajax_get_recording_count']);
 
     // Shortcodes
-    add_shortcode('screen_recording', [$this->shortcode_handler, 'render']);
+    if ($this->shortcode_handler) {
+      add_shortcode('screen_recording', [$this->shortcode_handler, 'render']);
+    }
 
     // Add recording column to posts/pages
     add_filter('manage_post_posts_columns', [$this, 'add_recording_column']);
@@ -139,7 +225,9 @@ class ScreenRecorderPro
 
   public function activate()
   {
-    $this->recordings_manager->create_table();
+    if ($this->recordings_manager) {
+      $this->recordings_manager->create_table();
+    }
 
     add_option('srp_settings', [
       'api_key' => '',
@@ -182,12 +270,11 @@ class ScreenRecorderPro
   }
 
   /**
-   * Get combined device/viewport options with updated responsive frames
+   * Get combined device/viewport options
    */
   public static function get_device_viewport_options()
   {
     return [
-      // Device frame options
       'mobile_iphone_xr' => [
         'name' => __('Mobile (iPhone XR)', 'screen-recorder-pro'),
         'type' => 'mobile',
@@ -223,8 +310,6 @@ class ScreenRecorderPro
         'height' => 1080,
         'device_frame' => true
       ],
-
-      // Plain viewport options (no frames)
       'viewport_1920' => [
         'name' => __('Desktop - Full HD (1920×1080)', 'screen-recorder-pro'),
         'type' => 'desktop',
@@ -250,7 +335,7 @@ class ScreenRecorderPro
   }
 
   /**
-   * AJAX handler to create recordings with usage limit check
+   * AJAX handler to create recordings with Freemius usage limit check
    */
   public function ajax_create_recording()
   {
@@ -260,18 +345,29 @@ class ScreenRecorderPro
       wp_send_json_error(['message' => 'Unauthorized']);
     }
 
-    // Check usage limits FIRST
+    // Check usage limits with Freemius integration
     if (!$this->check_usage_limits()) {
       $current_usage = $this->get_current_usage();
-      $limit = srp_is_premium_user() ? SRP_PREMIUM_MONTHLY_LIMIT : SRP_FREE_MONTHLY_LIMIT;
+      $limit = $this->get_usage_limit();
 
-      wp_send_json_error([
-        'message' => sprintf(
-          __('You have reached your monthly recording limit (%d/%d). Upgrade to premium for more recordings.', 'screen-recorder-pro'),
-          $current_usage,
-          $limit
-        )
-      ]);
+      if (function_exists('srp_fs') && srp_fs()->is_free_plan()) {
+        wp_send_json_error([
+          'message' => sprintf(
+            __('You have reached your monthly recording limit (%d/%d). <a href="%s" target="_blank">Upgrade to Pro</a> for unlimited recordings.', 'screen-recorder-pro'),
+            $current_usage,
+            $limit,
+            function_exists('srp_fs') ? srp_fs()->get_upgrade_url() : '#'
+          )
+        ]);
+      } else {
+        wp_send_json_error([
+          'message' => sprintf(
+            __('You have reached your monthly recording limit (%d/%d).', 'screen-recorder-pro'),
+            $current_usage,
+            $limit
+          )
+        ]);
+      }
     }
 
     $post_id = intval($_POST['post_id'] ?? 0);
@@ -493,15 +589,29 @@ class ScreenRecorderPro
   }
 
   /**
-   * Check usage limits with free tier limit of 10
+   * Check usage limits with Freemius integration
    */
   private function check_usage_limits()
   {
-    $is_premium = srp_is_premium_user();
-    $monthly_limit = $is_premium ? SRP_PREMIUM_MONTHLY_LIMIT : 10; // Free tier: 10 recordings
+    $monthly_limit = $this->get_usage_limit();
     $current_month = date('Y-m');
     $usage_count = $this->recordings_manager->get_monthly_count($current_month);
+
     return $usage_count < $monthly_limit;
+  }
+
+  /**
+   * Get usage limit based on Freemius plan
+   */
+  private function get_usage_limit()
+  {
+    // If Freemius is available and user has premium, unlimited
+    if (function_exists('srp_fs') && srp_fs()->can_use_premium_code()) {
+      return 999999; // Unlimited for pro users
+    }
+
+    // Free plan gets 10 recordings per month
+    return 10;
   }
 
   /**
@@ -514,7 +624,7 @@ class ScreenRecorderPro
   }
 
   /**
-   * AJAX handler to get recording count with usage info
+   * AJAX handler to get recording count with Freemius usage info
    */
   public function ajax_get_recording_count()
   {
@@ -522,15 +632,16 @@ class ScreenRecorderPro
 
     $total_recordings = $this->recordings_manager->get_count_by_status('completed');
     $current_usage = $this->get_current_usage();
-    $is_premium = srp_is_premium_user();
-    $monthly_limit = $is_premium ? SRP_PREMIUM_MONTHLY_LIMIT : 10;
+    $monthly_limit = $this->get_usage_limit();
+    $is_premium = function_exists('srp_fs') ? srp_fs()->can_use_premium_code() : false;
 
     wp_send_json_success([
       'total_recordings' => $total_recordings,
       'current_usage' => $current_usage,
       'monthly_limit' => $monthly_limit,
       'is_premium' => $is_premium,
-      'usage_display' => $current_usage . '/' . $monthly_limit
+      'usage_display' => $is_premium ? 'Unlimited' : $current_usage . '/' . $monthly_limit,
+      'plan_name' => $is_premium ? 'Pro' : 'Free'
     ]);
   }
 
@@ -552,6 +663,3 @@ class ScreenRecorderPro
     }
   }
 }
-
-// Initialize plugin
-ScreenRecorderPro::get_instance();
