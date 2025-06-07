@@ -35,6 +35,7 @@ function srp_load_classes()
   $files_to_load = [
     'includes/config-secure.php',
     'includes/class-recordings-manager.php',
+    'includes/class-api-proxy.php',              // Add this line
     'includes/class-screenshotone-api.php',
     'includes/class-admin-ui.php',
     'includes/class-shortcode-handler.php',
@@ -54,7 +55,7 @@ function srp_load_classes()
   $classes_loaded = true;
 
   // Verify classes loaded
-  $required_classes = ['SRP_Admin_UI', 'SRP_Recordings_Manager', 'ScreenRecorderPro'];
+  $required_classes = ['SRP_Admin_UI', 'SRP_Recordings_Manager', 'SRP_API_Proxy', 'ScreenRecorderPro'];
   foreach ($required_classes as $class) {
     if (class_exists($class)) {
       error_log("SRP: ✅ Class $class available");
@@ -148,6 +149,7 @@ class ScreenRecorderPro
 {
   private static $instance = null;
   private $api;
+  private $api_proxy;           // Add this line
   private $recordings_manager;
   private $admin_ui;
   private $shortcode_handler;
@@ -171,6 +173,14 @@ class ScreenRecorderPro
     // Initialize components if classes exist
     if (class_exists('SRP_ScreenshotOne_API')) {
       $this->api = new SRP_ScreenshotOne_API();
+    }
+
+    // Initialize the new API proxy
+    if (class_exists('SRP_API_Proxy')) {
+      $this->api_proxy = new SRP_API_Proxy();
+      error_log('SRP: ✅ API Proxy initialized');
+    } else {
+      error_log('SRP: ❌ API Proxy class not found');
     }
 
     if (class_exists('SRP_Recordings_Manager')) {
@@ -221,6 +231,11 @@ class ScreenRecorderPro
     add_filter('manage_page_posts_columns', [$this, 'add_recording_column']);
     add_action('manage_posts_custom_column', [$this, 'render_recording_column'], 10, 2);
     add_action('manage_pages_custom_column', [$this, 'render_recording_column'], 10, 2);
+
+    // API status check for admin
+    if (is_admin()) {
+      add_action('admin_notices', [$this, 'check_api_status']);
+    }
   }
 
   public function activate()
@@ -270,72 +285,7 @@ class ScreenRecorderPro
   }
 
   /**
-   * Get combined device/viewport options
-   */
-  public static function get_device_viewport_options()
-  {
-    return [
-      'mobile_iphone_xr' => [
-        'name' => __('Mobile (iPhone XR)', 'screen-recorder-pro'),
-        'type' => 'mobile',
-        'width' => 414,
-        'height' => 896,
-        'device_frame' => true
-      ],
-      'tablet_ipad_air_portrait' => [
-        'name' => __('Tablet (iPad Air 2020) Portrait', 'screen-recorder-pro'),
-        'type' => 'tablet',
-        'width' => 820,
-        'height' => 1180,
-        'device_frame' => true
-      ],
-      'tablet_ipad_air_landscape' => [
-        'name' => __('Tablet (iPad Air 2020) Landscape', 'screen-recorder-pro'),
-        'type' => 'tablet',
-        'width' => 1180,
-        'height' => 820,
-        'device_frame' => true
-      ],
-      'laptop_macbook_pro' => [
-        'name' => __('Laptop (MacBook Pro)', 'screen-recorder-pro'),
-        'type' => 'laptop',
-        'width' => 1440,
-        'height' => 900,
-        'device_frame' => true
-      ],
-      'desktop_imac_pro' => [
-        'name' => __('Desktop (iMac Pro)', 'screen-recorder-pro'),
-        'type' => 'desktop',
-        'width' => 1920,
-        'height' => 1080,
-        'device_frame' => true
-      ],
-      'viewport_1920' => [
-        'name' => __('Desktop - Full HD (1920×1080)', 'screen-recorder-pro'),
-        'type' => 'desktop',
-        'width' => 1920,
-        'height' => 1080,
-        'device_frame' => false
-      ],
-      'viewport_1440' => [
-        'name' => __('Desktop - Standard (1440×900)', 'screen-recorder-pro'),
-        'type' => 'desktop',
-        'width' => 1440,
-        'height' => 900,
-        'device_frame' => false
-      ],
-      'viewport_1280' => [
-        'name' => __('Desktop - Compact (1280×720)', 'screen-recorder-pro'),
-        'type' => 'desktop',
-        'width' => 1280,
-        'height' => 720,
-        'device_frame' => false
-      ]
-    ];
-  }
-
-  /**
-   * AJAX handler to create recordings with Freemius usage limit check
+   * AJAX handler to create recordings using new API proxy
    */
   public function ajax_create_recording()
   {
@@ -343,31 +293,6 @@ class ScreenRecorderPro
 
     if (!current_user_can('edit_posts')) {
       wp_send_json_error(['message' => 'Unauthorized']);
-    }
-
-    // Check usage limits with Freemius integration
-    if (!$this->check_usage_limits()) {
-      $current_usage = $this->get_current_usage();
-      $limit = $this->get_usage_limit();
-
-      if (function_exists('srp_fs') && srp_fs()->is_free_plan()) {
-        wp_send_json_error([
-          'message' => sprintf(
-            __('You have reached your monthly recording limit (%d/%d). <a href="%s" target="_blank">Upgrade to Pro</a> for unlimited recordings.', 'screen-recorder-pro'),
-            $current_usage,
-            $limit,
-            function_exists('srp_fs') ? srp_fs()->get_upgrade_url() : '#'
-          )
-        ]);
-      } else {
-        wp_send_json_error([
-          'message' => sprintf(
-            __('You have reached your monthly recording limit (%d/%d).', 'screen-recorder-pro'),
-            $current_usage,
-            $limit
-          )
-        ]);
-      }
     }
 
     $post_id = intval($_POST['post_id'] ?? 0);
@@ -404,16 +329,21 @@ class ScreenRecorderPro
       'post_id' => $post_id
     ];
 
-    $api_key = srp_get_api_key();
+    error_log('SRP: AJAX create recording called for URL: ' . $url);
 
-    if (empty($api_key)) {
-      wp_send_json_error(['message' => __('Plugin not properly configured. Please contact support.', 'screen-recorder-pro')]);
+    // Check if API proxy is available
+    if (!$this->api_proxy) {
+      error_log('SRP: API proxy not available, falling back to old method');
+      // Fallback to old method if needed
+      wp_send_json_error(['message' => 'API proxy not available']);
+      return;
     }
 
-    // Create the video
-    $result = $this->create_and_download_video($url, $api_key, $options);
+    // Use the new API proxy system
+    $result = $this->api_proxy->create_recording($url, $options);
 
     if (is_wp_error($result)) {
+      error_log('SRP: API proxy returned error: ' . $result->get_error_message());
       wp_send_json_error(['message' => $result->get_error_message()]);
     }
 
@@ -431,6 +361,8 @@ class ScreenRecorderPro
       wp_send_json_error(['message' => __('Failed to save recording.', 'screen-recorder-pro')]);
     }
 
+    error_log('SRP: Recording created successfully with ID: ' . $recording_id);
+
     wp_send_json_success([
       'recording_id' => $recording_id,
       'attachment_id' => $result['attachment_id'],
@@ -440,119 +372,41 @@ class ScreenRecorderPro
   }
 
   /**
-   * Create and download scrolling video
+   * Check API status and show admin notices
    */
-  private function create_and_download_video($target_url, $access_key, $options = [])
+  public function check_api_status()
   {
-    // Build API parameters
-    $query = [
-      'access_key' => $access_key,
-      'url' => $target_url,
-      'scenario' => 'scroll',
-      'format' => $options['format'] ?? 'mp4',
-      'duration' => $options['duration'] ?? '5',
-      'scroll_duration' => '1500',
-      'scroll_start_immediately' => 'true',
-      'scroll_complete' => 'true',
-      'viewport_width' => $options['viewport_width'] ?? '414',
-      'viewport_height' => $options['viewport_height'] ?? '896',
-      'viewport_mobile' => $options['device_type'] === 'mobile' ? 'true' : 'false',
-      'block_ads' => 'true',
-      'block_banners_by_heuristics' => 'true',
-      'block_chats' => 'true',
-      'block_cookie_banners' => 'true',
-      'timeout' => '60',
-      'reduced_motion' => 'false'
-    ];
-
-    $api_url = 'https://api.screenshotone.com/animate?' . http_build_query($query);
-
-    $response = wp_remote_get($api_url, [
-      'timeout' => 120,
-      'headers' => [
-        'User-Agent' => 'WordPress-ScreenRecorderPro/' . SRP_VERSION
-      ]
-    ]);
-
-    if (is_wp_error($response)) {
-      $error_message = 'WordPress HTTP Error: ' . $response->get_error_message();
-      return new WP_Error('api_error', $error_message);
+    // Only check on our plugin pages
+    if (!isset($_GET['page']) || strpos($_GET['page'], 'screen-recorder') === false) {
+      return;
     }
 
-    $response_code = wp_remote_retrieve_response_code($response);
-    if ($response_code !== 200) {
-      $response_body = wp_remote_retrieve_body($response);
-      return new WP_Error('api_error', 'ScreenshotOne API error (HTTP ' . $response_code . ')');
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+
+    if ($this->api_proxy) {
+      $connection_ok = $this->api_proxy->test_connection();
+
+      if (!$connection_ok) {
+        echo '<div class="notice notice-error">';
+        echo '<p><strong>Screen Recorder Pro:</strong> Cannot connect to API server. Please check your internet connection.</p>';
+        echo '</div>';
+      } else {
+        // Show success notice on first successful connection
+        $first_connection = get_transient('srp_first_api_connection');
+        if (!$first_connection) {
+          set_transient('srp_first_api_connection', true, DAY_IN_SECONDS);
+          echo '<div class="notice notice-success is-dismissible">';
+          echo '<p><strong>Screen Recorder Pro:</strong> ✅ API connection successful! Ready to create recordings.</p>';
+          echo '</div>';
+        }
+      }
     }
-
-    $video_data = wp_remote_retrieve_body($response);
-
-    if (empty($video_data)) {
-      return new WP_Error('api_error', 'ScreenshotOne API returned empty response');
-    }
-
-    return $this->save_video_to_wordpress($video_data, $target_url, $options);
   }
 
-  /**
-   * Save video to WordPress media library
-   */
-  private function save_video_to_wordpress($video_data, $source_url, $options)
-  {
-    // Generate filename
-    $post = get_post($options['post_id'] ?? 0);
-    $post_title = $post ? sanitize_title($post->post_title) : 'page';
-    $device_suffix = $options['device_key'] ?? 'mobile';
-    $filename = $post_title . '_' . $device_suffix . '_' . date('Y-m-d_H-i-s') . '.mp4';
-
-    // Get upload directory
-    $upload_dir = wp_upload_dir();
-    if ($upload_dir['error']) {
-      return new WP_Error('upload_dir_error', $upload_dir['error']);
-    }
-
-    // Create directory
-    $video_dir = $upload_dir['basedir'] . '/screen-recordings/';
-    if (!file_exists($video_dir)) {
-      wp_mkdir_p($video_dir);
-    }
-
-    $file_path = $video_dir . $filename;
-
-    // Save file
-    if (file_put_contents($file_path, $video_data) === false) {
-      return new WP_Error('file_save_error', 'Failed to save video file');
-    }
-
-    // Add to media library
-    $file_url = $upload_dir['baseurl'] . '/screen-recordings/' . $filename;
-
-    $attachment = [
-      'guid' => $file_url,
-      'post_mime_type' => 'video/mp4',
-      'post_title' => sanitize_file_name(basename($filename, '.mp4')),
-      'post_content' => 'Screen recording of ' . $source_url,
-      'post_status' => 'inherit'
-    ];
-
-    $attachment_id = wp_insert_attachment($attachment, $file_path, $options['post_id'] ?? 0);
-
-    if (is_wp_error($attachment_id)) {
-      return $attachment_id;
-    }
-
-    // Generate metadata
-    require_once(ABSPATH . 'wp-admin/includes/image.php');
-    $attachment_data = wp_generate_attachment_metadata($attachment_id, $file_path);
-    wp_update_attachment_metadata($attachment_id, $attachment_data);
-
-    return [
-      'attachment_id' => $attachment_id,
-      'file_path' => $file_path,
-      'file_url' => $file_url,
-      'file_size' => filesize($file_path)
-    ];
-  }
+  // Keep all your existing methods (ajax_check_status, ajax_delete_recording, etc.)
+  // Just add the new ones above
 
   public function ajax_check_status()
   {
@@ -589,51 +443,25 @@ class ScreenRecorderPro
   }
 
   /**
-   * Check usage limits with Freemius integration
-   */
-  private function check_usage_limits()
-  {
-    $monthly_limit = $this->get_usage_limit();
-    $current_month = date('Y-m');
-    $usage_count = $this->recordings_manager->get_monthly_count($current_month);
-
-    return $usage_count < $monthly_limit;
-  }
-
-  /**
-   * Get usage limit based on Freemius plan
-   */
-  private function get_usage_limit()
-  {
-    // If Freemius is available and user has premium, unlimited
-    if (function_exists('srp_fs') && srp_fs()->can_use_premium_code()) {
-      return 999999; // Unlimited for pro users
-    }
-
-    // Free plan gets 10 recordings per month
-    return 10;
-  }
-
-  /**
-   * Get current month usage
-   */
-  private function get_current_usage()
-  {
-    $current_month = date('Y-m');
-    return $this->recordings_manager->get_monthly_count($current_month);
-  }
-
-  /**
-   * AJAX handler to get recording count with Freemius usage info
+   * AJAX handler to get recording count with usage info
    */
   public function ajax_get_recording_count()
   {
     check_ajax_referer('srp_ajax_nonce', 'nonce');
 
     $total_recordings = $this->recordings_manager->get_count_by_status('completed');
-    $current_usage = $this->get_current_usage();
-    $monthly_limit = $this->get_usage_limit();
-    $is_premium = function_exists('srp_fs') ? srp_fs()->can_use_premium_code() : false;
+
+    if ($this->api_proxy) {
+      $user_status = $this->api_proxy->get_user_status();
+      $current_usage = $user_status['current_usage'];
+      $monthly_limit = $user_status['usage_limit'];
+      $is_premium = function_exists('srp_fs') ? srp_fs()->is_paying() : false;
+    } else {
+      // Fallback values
+      $current_usage = 0;
+      $monthly_limit = 1;
+      $is_premium = false;
+    }
 
     wp_send_json_success([
       'total_recordings' => $total_recordings,
@@ -661,5 +489,110 @@ class ScreenRecorderPro
         echo '<span class="dashicons dashicons-video-alt3" style="color: #ccc;" title="No recording"></span>';
       }
     }
+  }
+
+  /**
+   * Get duration options based on user's plan and Netlify limits
+   */
+  public static function get_duration_options()
+  {
+    $is_premium = function_exists('srp_fs') && srp_fs()->is_paying();
+
+    if ($is_premium) {
+      // Premium users get up to 7 seconds (within Netlify free tier limits)
+      return [
+        '3' => '3 seconds',
+        '5' => '5 seconds',
+        '7' => '7 seconds (max)'
+      ];
+    } else {
+      // Free users get up to 5 seconds
+      return [
+        '3' => '3 seconds',
+        '5' => '5 seconds (max)'
+      ];
+    }
+  }
+
+  /**
+   * Get maximum duration for current user
+   */
+  public static function get_max_duration()
+  {
+    $is_premium = function_exists('srp_fs') && srp_fs()->is_paying();
+    return $is_premium ? 7 : 5;
+  }
+
+  /**
+   * Updated device/viewport options with duration notes
+   */
+  public static function get_device_viewport_options()
+  {
+    return [
+      'mobile_iphone_xr' => [
+        'name' => __('Mobile (iPhone XR)', 'screen-recorder-pro'),
+        'type' => 'mobile',
+        'width' => 414,
+        'height' => 896,
+        'device_frame' => true,
+        'recommended_duration' => 3
+      ],
+      'tablet_ipad_air_portrait' => [
+        'name' => __('Tablet (iPad Air) Portrait', 'screen-recorder-pro'),
+        'type' => 'tablet',
+        'width' => 820,
+        'height' => 1180,
+        'device_frame' => true,
+        'recommended_duration' => 5
+      ],
+      'tablet_ipad_air_landscape' => [
+        'name' => __('Tablet (iPad Air) Landscape', 'screen-recorder-pro'),
+        'type' => 'tablet',
+        'width' => 1180,
+        'height' => 820,
+        'device_frame' => true,
+        'recommended_duration' => 5
+      ],
+      'laptop_macbook_pro' => [
+        'name' => __('Laptop (MacBook Pro)', 'screen-recorder-pro'),
+        'type' => 'laptop',
+        'width' => 1440,
+        'height' => 900,
+        'device_frame' => true,
+        'recommended_duration' => 7
+      ],
+      'desktop_imac_pro' => [
+        'name' => __('Desktop (iMac Pro)', 'screen-recorder-pro'),
+        'type' => 'desktop',
+        'width' => 1920,
+        'height' => 1080,
+        'device_frame' => true,
+        'recommended_duration' => 7
+      ],
+      'viewport_1920' => [
+        'name' => __('Desktop - Full HD (1920×1080)', 'screen-recorder-pro'),
+        'type' => 'desktop',
+        'width' => 1920,
+        'height' => 1080,
+        'device_frame' => false,
+        'recommended_duration' => 5
+      ],
+      'viewport_1440' => [
+        'name' => __('Desktop - Standard (1440×900)', 'screen-recorder-pro'),
+        'type' => 'desktop',
+        'width' => 1440,
+        'height' => 900,
+        'device_frame' => false,
+        'recommended_duration' => 5
+      ],
+      'viewport_1280' => [
+        'name' => __('Desktop - Compact (1280×720)', 'screen-recorder-pro'),
+        'type' => 'desktop',
+        'width' => 1280,
+        'height' => 720,
+        'device_frame' => false,
+        'recommended_duration' => 3
+      ]
+    ];
   }
 }

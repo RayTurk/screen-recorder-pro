@@ -8,10 +8,12 @@ if (!defined('ABSPATH')) {
   exit;
 }
 
-class SRP_Recordings_Manager {
+class SRP_Recordings_Manager
+{
   private $table_name;
 
-  public function __construct() {
+  public function __construct()
+  {
     global $wpdb;
     $this->table_name = $wpdb->prefix . 'srp_recordings';
   }
@@ -19,7 +21,8 @@ class SRP_Recordings_Manager {
   /**
    * Create the recordings table
    */
-  public function create_table() {
+  public function create_table()
+  {
     global $wpdb;
 
     $charset_collate = $wpdb->get_charset_collate();
@@ -56,7 +59,8 @@ class SRP_Recordings_Manager {
   /**
    * Create a new recording
    */
-  public function create($data) {
+  public function create($data)
+  {
     global $wpdb;
 
     $defaults = [
@@ -108,14 +112,15 @@ class SRP_Recordings_Manager {
 
     $recording_id = $wpdb->insert_id;
     error_log('SRP: Recording created successfully with ID: ' . $recording_id);
-    
+
     return $recording_id;
   }
 
   /**
    * Get a recording by ID
    */
-  public function get($id) {
+  public function get($id)
+  {
     global $wpdb;
 
     $recording = $wpdb->get_row(
@@ -138,7 +143,8 @@ class SRP_Recordings_Manager {
   /**
    * Get recording by post ID
    */
-  public function get_by_post_id($post_id) {
+  public function get_by_post_id($post_id)
+  {
     global $wpdb;
 
     $recording = $wpdb->get_row(
@@ -159,9 +165,37 @@ class SRP_Recordings_Manager {
   }
 
   /**
+   * Get recent recordings (FIXED: Added missing method)
+   */
+  public function get_recent($limit = 5)
+  {
+    global $wpdb;
+
+    $recordings = $wpdb->get_results(
+      $wpdb->prepare(
+        "SELECT * FROM {$this->table_name} ORDER BY created_at DESC LIMIT %d",
+        $limit
+      )
+    );
+
+    // Unserialize data for each recording
+    foreach ($recordings as $recording) {
+      if (!empty($recording->options)) {
+        $recording->options = maybe_unserialize($recording->options);
+      }
+      if (!empty($recording->api_response)) {
+        $recording->api_response = maybe_unserialize($recording->api_response);
+      }
+    }
+
+    return $recordings;
+  }
+
+  /**
    * Update a recording
    */
-  public function update($id, $data) {
+  public function update($id, $data)
+  {
     global $wpdb;
 
     // Serialize arrays
@@ -200,7 +234,8 @@ class SRP_Recordings_Manager {
   /**
    * Delete a recording
    */
-  public function delete($id) {
+  public function delete($id)
+  {
     global $wpdb;
 
     $deleted = $wpdb->delete(
@@ -215,7 +250,8 @@ class SRP_Recordings_Manager {
   /**
    * Get all recordings
    */
-  public function get_all($limit = 50, $offset = 0) {
+  public function get_all($limit = 50, $offset = 0)
+  {
     global $wpdb;
 
     $recordings = $wpdb->get_results(
@@ -242,7 +278,8 @@ class SRP_Recordings_Manager {
   /**
    * Get count by status
    */
-  public function get_count_by_status($status = 'completed') {
+  public function get_count_by_status($status = 'completed')
+  {
     global $wpdb;
 
     return $wpdb->get_var(
@@ -253,7 +290,8 @@ class SRP_Recordings_Manager {
   /**
    * Get monthly count
    */
-  public function get_monthly_count($month) {
+  public function get_monthly_count($month)
+  {
     global $wpdb;
 
     return $wpdb->get_var(
@@ -267,7 +305,8 @@ class SRP_Recordings_Manager {
   /**
    * Cleanup old recordings
    */
-  public function cleanup_old_recordings($days = 30) {
+  public function cleanup_old_recordings($days = 30)
+  {
     global $wpdb;
 
     $deleted = $wpdb->query(
@@ -283,16 +322,17 @@ class SRP_Recordings_Manager {
   /**
    * Debug method to check table structure
    */
-  public function debug_table() {
+  public function debug_table()
+  {
     global $wpdb;
-    
+
     $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$this->table_name}'");
     if (!$table_exists) {
       return 'Table does not exist: ' . $this->table_name;
     }
 
     $columns = $wpdb->get_results("DESCRIBE {$this->table_name}");
-    
+
     $debug_info = "Table: {$this->table_name}\n";
     $debug_info .= "Columns:\n";
     foreach ($columns as $column) {

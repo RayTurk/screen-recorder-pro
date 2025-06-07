@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Updated Config Secure with Proper Freemius Protection
+ * Clean Configuration - Users don't need to manage API keys
  * Replace your includes/config-secure.php with this version
  */
 
@@ -9,58 +9,114 @@ if (!defined('ABSPATH')) {
   exit;
 }
 
-// Default API key for the plugin (your ScreenshotOne key)
-define('SRP_DEFAULT_API_KEY', 'V3mF4QholiL8Qw'); // Replace with your actual key
-
-// Mediamodifier API key for device mockups
-define('SRP_MEDIAMODIFIER_API_KEY', '11aeed3b-9a1f-434f-ba06-c578de93ebae');
-
-// Premium features API endpoint (for future use)
-define('SRP_PREMIUM_API_ENDPOINT', 'https://your-server.com/api/');
-
-// Plugin security settings
-define('SRP_ENCRYPTION_KEY', 'your-unique-encryption-key-here');
-
-// API rate limits (updated for Freemius integration)
-define('SRP_FREE_MONTHLY_LIMIT', 10);        // Free tier: 10 recordings
-define('SRP_PRO_MONTHLY_LIMIT', 999999);     // Pro tier: Unlimited
-
-// Mediamodifier API limits
-define('SRP_MEDIAMODIFIER_FREE_LIMIT', 100); // 100 free calls per month
-define('SRP_MEDIAMODIFIER_CACHE_DURATION', 3600); // 1 hour cache
+// API rate limits (updated for clean freemius integration)
+define('SRP_FREE_TOTAL_LIMIT', 1);           // Free tier: 1 recording total
+define('SRP_STARTER_MONTHLY_LIMIT', 25);     // Starter: 25/month
+define('SRP_PRO_MONTHLY_LIMIT', 100);        // Pro: 100/month
+define('SRP_AGENCY_MONTHLY_LIMIT', 300);     // Agency: 300/month
 
 /**
- * Get the appropriate API key with Freemius integration
+ * Get usage limit based on plan
  */
-function srp_get_api_key()
+function srp_get_usage_limit()
 {
-  // Check if user has premium and their own API key (PREMIUM ONLY)
-  if (function_exists('srp_fs') && srp_fs()->can_use_premium_code__premium_only()) {
-    $user_settings = get_option('srp_user_settings', []);
-    if (!empty($user_settings['premium_api_key'])) {
-      return $user_settings['premium_api_key'];
-    }
+  if (!function_exists('srp_fs') || !srp_fs()->is_registered()) {
+    return SRP_FREE_TOTAL_LIMIT; // 1 total recording
   }
 
-  // Use default plugin API key for all users
-  return SRP_DEFAULT_API_KEY;
+  if (!srp_fs()->is_paying()) {
+    return SRP_FREE_TOTAL_LIMIT; // 1 total recording
+  }
+
+  // Get user's plan
+  $plan = srp_fs()->get_plan();
+  if (!$plan) {
+    return SRP_FREE_TOTAL_LIMIT;
+  }
+
+  switch (strtolower($plan->name)) {
+    case 'starter':
+      return SRP_STARTER_MONTHLY_LIMIT;
+    case 'pro':
+      return SRP_PRO_MONTHLY_LIMIT;
+    case 'agency':
+      return SRP_AGENCY_MONTHLY_LIMIT;
+    default:
+      return SRP_FREE_TOTAL_LIMIT;
+  }
 }
 
 /**
- * Get Mediamodifier API key for device mockups
+ * Check if user can create more recordings
  */
-function srp_get_mediamodifier_api_key()
+function srp_can_create_recording()
 {
-  // Check if user has their own Mediamodifier API key (PREMIUM ONLY)
-  if (function_exists('srp_fs') && srp_fs()->can_use_premium_code__premium_only()) {
-    $mockup_settings = get_option('srp_device_mockup_settings', []);
-    if (!empty($mockup_settings['mediamodifier_api_key'])) {
-      return $mockup_settings['mediamodifier_api_key'];
-    }
+  if (!function_exists('srp_fs')) {
+    return false; // Safety fallback
   }
 
-  // Use default plugin Mediamodifier API key
-  return defined('SRP_MEDIAMODIFIER_API_KEY') ? SRP_MEDIAMODIFIER_API_KEY : '';
+  // Paying users check monthly limits
+  if (srp_fs()->is_paying()) {
+    if (class_exists('SRP_Recordings_Manager')) {
+      $recordings_manager = new SRP_Recordings_Manager();
+      $current_month = date('Y-m');
+      $usage_count = $recordings_manager->get_monthly_count($current_month);
+      $monthly_limit = srp_get_usage_limit();
+
+      return $usage_count < $monthly_limit;
+    }
+    return true;
+  }
+
+  // Free users check total recordings ever
+  if (class_exists('SRP_Recordings_Manager')) {
+    $recordings_manager = new SRP_Recordings_Manager();
+    $total_recordings = $recordings_manager->get_count_by_status('completed');
+
+    return $total_recordings < SRP_FREE_TOTAL_LIMIT; // Must be less than 1
+  }
+
+  return false;
+}
+
+/**
+ * Get current usage for display
+ */
+function srp_get_current_usage()
+{
+  if (!class_exists('SRP_Recordings_Manager')) {
+    return 0;
+  }
+
+  $recordings_manager = new SRP_Recordings_Manager();
+
+  if (function_exists('srp_fs') && srp_fs()->is_paying()) {
+    // Paying users: monthly count
+    $current_month = date('Y-m');
+    return $recordings_manager->get_monthly_count($current_month);
+  } else {
+    // Free users: total count ever
+    return $recordings_manager->get_count_by_status('completed');
+  }
+}
+
+/**
+ * Get usage display text
+ */
+function srp_get_usage_display()
+{
+  $current_usage = srp_get_current_usage();
+  $limit = srp_get_usage_limit();
+
+  if (function_exists('srp_fs') && srp_fs()->is_paying()) {
+    return $current_usage . '/' . $limit . ' this month';
+  } else {
+    if ($current_usage >= $limit) {
+      return 'Free recording used';
+    } else {
+      return 'Free recording available';
+    }
+  }
 }
 
 /**
@@ -74,7 +130,7 @@ function srp_is_premium_user()
   }
 
   // Use Freemius to check if user can use premium code
-  return srp_fs()->can_use_premium_code();
+  return srp_fs()->is_paying();
 }
 
 /**
@@ -86,55 +142,12 @@ function srp_get_plan_name()
     return 'Free';
   }
 
-  if (srp_fs()->can_use_premium_code()) {
-    return 'Pro';
+  if (srp_fs()->is_paying()) {
+    $plan = srp_fs()->get_plan();
+    return $plan ? ucfirst($plan->name) : 'Pro';
   }
 
   return 'Free';
-}
-
-/**
- * Get usage limit based on plan
- */
-function srp_get_usage_limit()
-{
-  if (!function_exists('srp_fs')) {
-    return SRP_FREE_MONTHLY_LIMIT;
-  }
-
-  // Premium users get unlimited
-  if (srp_fs()->can_use_premium_code()) {
-    return SRP_PRO_MONTHLY_LIMIT; // Unlimited
-  }
-
-  return SRP_FREE_MONTHLY_LIMIT; // 10 recordings
-}
-
-/**
- * Check if user can create more recordings
- */
-function srp_can_create_recording()
-{
-  if (!function_exists('srp_fs')) {
-    // Fallback behavior if Freemius not loaded
-    return true;
-  }
-
-  // Pro users always can
-  if (srp_fs()->can_use_premium_code()) {
-    return true;
-  }
-
-  // Check free user limits
-  if (class_exists('SRP_Recordings_Manager')) {
-    $recordings_manager = new SRP_Recordings_Manager();
-    $current_month = date('Y-m');
-    $usage_count = $recordings_manager->get_monthly_count($current_month);
-
-    return $usage_count < SRP_FREE_MONTHLY_LIMIT;
-  }
-
-  return true; // Default to allowing if we can't check
 }
 
 /**
@@ -170,8 +183,8 @@ function srp_should_show_upgrade_prompts()
     return false;
   }
 
-  // Show to users who haven't paid (even if they have premium version)
-  return srp_fs()->is_not_paying();
+  // Show to users who haven't paid
+  return !srp_fs()->is_paying();
 }
 
 /**
@@ -183,55 +196,6 @@ function srp_show_premium_features()
     return false;
   }
 
-  // Show premium features if user can use premium code
-  return srp_fs()->can_use_premium_code();
-}
-
-// Legacy functions for backward compatibility
-function srp_has_premium_mockups()
-{
-  return !empty(srp_get_mediamodifier_api_key());
-}
-
-function srp_get_mediamodifier_usage()
-{
-  $usage = get_option('srp_mediamodifier_usage', [
-    'calls_this_month' => 0,
-    'month' => date('Y-m'),
-    'total_calls' => 0
-  ]);
-
-  // Reset if new month
-  $current_month = date('Y-m');
-  if ($usage['month'] !== $current_month) {
-    $usage['calls_this_month'] = 0;
-    $usage['month'] = $current_month;
-    update_option('srp_mediamodifier_usage', $usage);
-  }
-
-  return $usage;
-}
-
-function srp_increment_mediamodifier_usage()
-{
-  $usage = srp_get_mediamodifier_usage();
-  $usage['calls_this_month']++;
-  $usage['total_calls']++;
-  update_option('srp_mediamodifier_usage', $usage);
-
-  return $usage;
-}
-
-function srp_can_use_mediamodifier()
-{
-  $usage = srp_get_mediamodifier_usage();
-  $limit = SRP_MEDIAMODIFIER_FREE_LIMIT;
-
-  // If user has their own API key, they likely have higher limits
-  $mockup_settings = get_option('srp_device_mockup_settings', []);
-  if (!empty($mockup_settings['mediamodifier_api_key'])) {
-    $limit = 5000; // Assume premium plan limit
-  }
-
-  return $usage['calls_this_month'] < $limit;
+  // Show premium features if user is paying
+  return srp_fs()->is_paying();
 }
